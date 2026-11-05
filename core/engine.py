@@ -26,11 +26,13 @@ class UniversalLiveVoiceEngine:
         self,
         config: Optional[LiveVoiceConfig] = None,
         on_transcript: Optional[Callable[[str, str], None]] = None,
-        on_state_change: Optional[Callable[[ConversationState], None]] = None
+        on_state_change: Optional[Callable[[ConversationState], None]] = None,
+        on_energy: Optional[Callable[[float], None]] = None
     ):
         self.config = config or LiveVoiceConfig.load()
         self.on_transcript = on_transcript
         self.on_state_change = on_state_change
+        self.on_energy = on_energy
 
         self.coordinator = InterruptionCoordinator(on_state_change=self._handle_state_change)
         self.audio_mgr = AudioStreamManager(
@@ -62,6 +64,10 @@ class UniversalLiveVoiceEngine:
         while self._running:
             chunk = self.audio_mgr.get_input_chunk(timeout=0.05)
             if chunk and len(chunk) > 0:
+                pcm_arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767.0
+                rms = np.sqrt(np.mean(pcm_arr**2)) if len(pcm_arr) > 0 else 0.0
+                if self.on_energy:
+                    self.on_energy(rms)
                 try:
                     await session.send_realtime_input(
                         audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
@@ -285,6 +291,8 @@ class UniversalLiveVoiceEngine:
                 if chunk and len(chunk) > 0:
                     pcm_arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767.0
                     rms = np.sqrt(np.mean(pcm_arr**2)) if len(pcm_arr) > 0 else 0.0
+                    if self.on_energy:
+                        self.on_energy(rms)
 
                     if rms > vad_energy:
                         if not speaking:

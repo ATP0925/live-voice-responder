@@ -5,3 +5,4 @@
 - Compatible with full-duplex speech streaming, instant barge-in, and auto-injection.
 - Run interactive duplex CLI:
   `python live_voice_cli.py`
+

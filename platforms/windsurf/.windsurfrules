@@ -3,3 +3,4 @@
 - Active Callsign: Boss (Customizable in config.json).
 - Supports bidirectional voice interaction with instant interruption.
 - Execute spoken feedback turns using `python live_voice_cli.py`.
+
