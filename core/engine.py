@@ -340,11 +340,16 @@ class UniversalLiveVoiceEngine:
         noise_gate = AdaptiveNoiseGate(
             sample_rate=self.config.audio.input_sample_rate,
             silence_timeout=0.45,
-            min_speech_duration=0.35,
+            min_speech_duration=0.20,
             max_speech_duration=6.0
         )
         audio_buffer = bytearray()
         lock_path = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
+        if os.path.exists(lock_path):
+            try:
+                os.remove(lock_path)
+            except Exception:
+                pass
 
         try:
             while self._running:
@@ -358,8 +363,18 @@ class UniversalLiveVoiceEngine:
                     await asyncio.sleep(0.05)
                     continue
 
-                # Echo cancellation: If agent is speaking through speakers, mute mic completely!
-                if os.path.exists(lock_path) or self.audio_mgr.is_playing:
+                # Echo cancellation: check speaking lock with 5-second auto-expiry
+                is_speaking_locked = False
+                if os.path.exists(lock_path):
+                    try:
+                        if time.time() - os.path.getmtime(lock_path) > 5.0:
+                            os.remove(lock_path)
+                        else:
+                            is_speaking_locked = True
+                    except Exception:
+                        pass
+
+                if is_speaking_locked or self.audio_mgr.is_playing:
                     self.coordinator.set_state(ConversationState.SPEAKING)
                     audio_buffer.clear()
                     await asyncio.sleep(0.04)
@@ -384,7 +399,7 @@ class UniversalLiveVoiceEngine:
                     captured = bytes(audio_buffer)
                     audio_buffer.clear()
 
-                    if len(captured) >= 10000:  # ~0.35s minimum
+                    if len(captured) >= 6000:  # ~0.19s minimum (captures quick words)
                         loop = asyncio.get_running_loop()
                         text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
                         if text and text.strip():

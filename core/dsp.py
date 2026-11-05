@@ -43,7 +43,7 @@ class AdaptiveNoiseGate:
         self,
         sample_rate: int = 16000,
         silence_timeout: float = 0.45,
-        min_speech_duration: float = 0.35,
+        min_speech_duration: float = 0.20,
         max_speech_duration: float = 6.0
     ):
         self.filter = SpeechNoiseFilter(sample_rate=sample_rate)
@@ -51,7 +51,7 @@ class AdaptiveNoiseGate:
         self.min_speech_duration = min_speech_duration
         self.max_speech_duration = max_speech_duration
 
-        self.ambient_floor = 0.008
+        self.ambient_floor = 0.005
         self.calibrated = False
         self.ambient_samples = []
 
@@ -74,19 +74,20 @@ class AdaptiveNoiseGate:
 
         now = time.time()
 
-        # 2. Calibration of initial ambient floor
+        # 2. Calibration of initial ambient floor (using lowest 20th percentile to ignore speech)
         if not self.calibrated:
             self.ambient_samples.append(rms)
-            if len(self.ambient_samples) >= 10:
-                self.ambient_floor = max(0.004, float(np.mean(self.ambient_samples)))
+            if len(self.ambient_samples) >= 8:
+                perc = float(np.percentile(self.ambient_samples, 20))
+                self.ambient_floor = min(0.010, max(0.002, perc))
                 self.calibrated = True
             return False, False, rms
 
-        # 3. Dual-threshold hysteresis
-        # Attack threshold requires clear human vocal energy above ambient floor
-        attack_thresh = max(0.018, self.ambient_floor * 2.6 + 0.010)
-        # Release threshold for silence drop
-        release_thresh = max(0.010, self.ambient_floor * 1.4 + 0.004)
+        # 3. Dynamic vocal sensitivity thresholds
+        # Speech attack threshold: sensitive to human voice, never locking out user
+        attack_thresh = min(0.022, max(0.010, self.ambient_floor * 1.5 + 0.004))
+        # Release threshold: detect clean drop to silence
+        release_thresh = max(0.005, self.ambient_floor * 1.1 + 0.002)
 
         just_finished = False
 
@@ -107,8 +108,8 @@ class AdaptiveNoiseGate:
                     if total_duration >= self.min_speech_duration:
                         just_finished = True
         else:
-            # Slow leaky update of ambient floor during quiet periods
-            self.ambient_floor = 0.98 * self.ambient_floor + 0.02 * rms
+            # Slow leaky update of ambient floor during quiet periods (capped at 0.010)
+            self.ambient_floor = min(0.010, 0.98 * self.ambient_floor + 0.02 * rms)
 
         return self.is_speaking, just_finished, rms
 
