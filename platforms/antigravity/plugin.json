@@ -1,0 +1,15 @@
+{
+  "name": "live-voice-responder",
+  "version": "4.0.0",
+  "description": "Enterprise Full-Duplex Multimodal Voice Coordination Engine powered by Gemini 3.1 Flash Live and 3-Tier Neural TTS.",
+  "author": "Antigravity & Boss",
+  "license": "MIT",
+  "main": "live_voice_cli.py",
+  "capabilities": [
+    "bidirectional-audio-streaming",
+    "voice-activity-detection",
+    "instant-barge-in",
+    "antigravity-chat-injection",
+    "offline-failover-tts"
+  ]
+}

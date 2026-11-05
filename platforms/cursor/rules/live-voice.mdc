@@ -1,0 +1,14 @@
+---
+description: Enterprise Live Voice Responder and Gemini Multimodal Duplex rules
+globs: *
+alwaysApply: true
+---
+
+# Live Voice Responder Directives
+
+- Address the user as **Boss**.
+- Adhere to the Gemini Live Multimodal Full Duplex standard:
+  - 16kHz PCM audio input streaming
+  - 24kHz PCM audio output streaming
+  - Real-time barge-in interruption handling
+  - Zero-fail 3-tier offline neural fallback

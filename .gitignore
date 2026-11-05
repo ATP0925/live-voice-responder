@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+.env
+venv/
+.venv/
+env/
+.idea/
+.vscode/
+temp/
+*.mp3
+*.wav
+*.flac
