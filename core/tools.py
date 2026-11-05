@@ -3,11 +3,14 @@ Universal Function Calling & AI Agent Integration Tools
 Enables the voice agent to inspect files, execute system commands,
 and inject instructions into ANY AI Coding Assistant in real time:
 Claude Code, Cursor IDE, OpenAI Codex / Copilot, Google Antigravity, and Windsurf.
+Features hardware scancode Enter simulation and spoken 'Enter' voice-trigger detection.
 """
 
 import os
+import re
 import time
 import subprocess
+import winsound
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -60,13 +63,32 @@ def read_workspace_file(file_path: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
-def inject_agent_chat(message: str, target_hint: str = "auto") -> Dict[str, Any]:
+def parse_spoken_enter(text: str) -> tuple[str, bool]:
+    """
+    Checks if Boss spoke 'enter', 'send', or 'submit' at the end of the sentence.
+    Strips the keyword and returns (clean_text, was_spoken_enter).
+    """
+    if not text:
+        return "", False
+    clean = text.strip()
+    match = re.search(r'\b(enter|send|submit)\b[.,!?]*$', clean, re.IGNORECASE)
+    if match:
+        stripped = clean[:match.start()].strip(' ,.!?')
+        return stripped if stripped else clean, True
+    return clean, False
+
+def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool = True) -> Dict[str, Any]:
     """
     Universally injects voice transcription into the active AI Agent's Chat box
     (Claude Code, Cursor, Antigravity, Codex/VS Code, Windsurf) and triggers Enter.
+    Automatically handles spoken 'enter' keyword stripping and hardware scancodes.
     """
     if not WIN32_AVAILABLE:
         return {"status": "win32_unavailable", "message": message}
+
+    clean_message, spoken_enter = parse_spoken_enter(message)
+    if not clean_message:
+        return {"status": "empty_message"}
 
     target_hwnd = None
     detected_agent = "Unknown"
@@ -94,30 +116,51 @@ def inject_agent_chat(message: str, target_hint: str = "auto") -> Dict[str, Any]
 
     if target_hwnd:
         try:
+            # 1. Bring target window to front with ALT bypass
             win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
             win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
             win32gui.SetForegroundWindow(target_hwnd)
             win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
-            time.sleep(0.08)
+            time.sleep(0.12)
 
-            # Copy to clipboard
+            # 2. Copy text to Windows Clipboard
             win32clipboard.OpenClipboard()
             win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(message, win32clipboard.CF_UNICODETEXT)
+            win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
             win32clipboard.CloseClipboard()
-            time.sleep(0.05)
+            time.sleep(0.06)
 
-            # Paste Ctrl + V
-            win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-            win32api.keybd_event(ord('V'), 0, 0, 0)
-            win32api.keybd_event(ord('V'), 0, win32con.KEYEVENTF_KEYUP, 0)
-            win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-            time.sleep(0.08)
+            # 3. Paste (Ctrl + V) with hardware scancodes
+            ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+            v_scan = win32api.MapVirtualKey(ord('V'), 0)
+            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
+            win32api.keybd_event(ord('V'), v_scan, 0, 0)
+            time.sleep(0.04)
+            win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
+            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
 
-            # Hit ENTER
-            win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-            win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-            return {"status": "success", "agent": detected_agent, "injected_text": message}
+            # Crucial: Allow React/Electron DOM ~180ms to render the pasted text
+            time.sleep(0.18)
+
+            # 4. Hit ENTER with hardware scancode (simulates physical Enter key!)
+            if force_enter or spoken_enter:
+                enter_scan = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
+                win32api.keybd_event(win32con.VK_RETURN, enter_scan, 0, 0)
+                time.sleep(0.06)
+                win32api.keybd_event(win32con.VK_RETURN, enter_scan, win32con.KEYEVENTF_KEYUP, 0)
+
+            # 5. Play acoustic confirmation chime
+            try:
+                winsound.Beep(1200, 60)
+            except Exception:
+                pass
+
+            return {
+                "status": "success",
+                "agent": detected_agent,
+                "injected_text": clean_message,
+                "voice_enter": spoken_enter
+            }
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 

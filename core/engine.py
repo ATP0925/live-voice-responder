@@ -19,7 +19,7 @@ from .config import LiveVoiceConfig
 from .audio_stream import AudioStreamManager
 from .interruption import InterruptionCoordinator, ConversationState
 from .fallback_tts import FallbackTTS
-from .tools import execute_system_command, read_workspace_file, inject_agent_chat
+from .tools import execute_system_command, read_workspace_file, inject_agent_chat, parse_spoken_enter
 
 class UniversalLiveVoiceEngine:
     def __init__(
@@ -268,73 +268,57 @@ class UniversalLiveVoiceEngine:
                 return None
 
     async def _start_universal_listener(self):
-        """Continuous Hands-Free VAD with Dynamic Ambient Calibration & Instant English Text Output."""
+        """Continuous Hands-Free VAD with DSP Fan-Noise Cancellation & Instant English Text Output."""
+        from .dsp import AdaptiveNoiseGate
+
         self._running = True
         self.audio_mgr.start()
-        print("🎙️ [Mic Active - English Letters] Bolo Boss! Aapke words turant English letters me aayenge.\n")
-        self.fallback_tts.speak(f"{self.config.persona.callsign}, listening mode active hai.")
+        print("🎙️ [Mic Active - DSP Noise Filtered] Bolo Boss! Laptop fan aur room noise cancel ho raha hai.\n")
+        self.fallback_tts.speak(f"{self.config.persona.callsign}, noise filter active hai. Bolo.")
 
-        silence_threshold = self.config.audio.silence_duration_seconds
+        noise_gate = AdaptiveNoiseGate(
+            sample_rate=self.config.audio.input_sample_rate,
+            silence_timeout=0.45,
+            min_speech_duration=0.35,
+            max_speech_duration=6.0
+        )
         audio_buffer = bytearray()
-        speaking = False
-        last_voice_time = 0.0
-        ambient_samples = []
-        speech_threshold = self.config.audio.vad_threshold_energy
-        calibrated = False
 
         try:
             while self._running:
-                chunk = self.audio_mgr.get_input_chunk(timeout=0.06)
+                chunk = self.audio_mgr.get_input_chunk(timeout=0.04)
                 if not chunk or len(chunk) == 0:
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.005)
                     continue
 
-                pcm_arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767.0
-                rms = np.sqrt(np.mean(pcm_arr**2)) if len(pcm_arr) > 0 else 0.0
+                is_speaking, just_finished, rms = noise_gate.process_chunk(chunk)
                 if self.on_energy:
                     self.on_energy(rms)
 
-                # Ambient noise floor calibration (first 10 chunks)
-                if not calibrated:
-                    ambient_samples.append(rms)
-                    if len(ambient_samples) >= 10:
-                        avg_ambient = float(np.mean(ambient_samples))
-                        speech_threshold = max(0.020, avg_ambient * 2.2)
-                        calibrated = True
-                    continue
-
-                now = time.time()
-                if rms > speech_threshold:
-                    if not speaking:
-                        speaking = True
+                if is_speaking:
+                    if len(audio_buffer) == 0:
                         self.coordinator.start_user_turn()
-                        audio_buffer.clear()
-                    last_voice_time = now
                     audio_buffer.extend(chunk)
-                elif speaking:
-                    audio_buffer.extend(chunk)
-                    silence_duration = now - last_voice_time
 
-                    # End of speech: silence threshold reached or max phrase 6s
-                    if silence_duration >= silence_threshold or len(audio_buffer) >= (16000 * 2 * 6):
-                        speaking = False
-                        self.coordinator.start_processing()
-                        captured = bytes(audio_buffer)
-                        audio_buffer.clear()
+                if just_finished:
+                    self.coordinator.start_processing()
+                    captured = bytes(audio_buffer)
+                    audio_buffer.clear()
 
-                        if len(captured) >= 12000:  # At least ~0.4s
-                            loop = asyncio.get_running_loop()
-                            text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
-                            if text and text.strip():
-                                clean_tx = text.strip()
-                                # 1. Display on terminal in English letters!
-                                if self.on_transcript:
-                                    self.on_transcript("Boss", clean_tx)
+                    if len(captured) >= 10000:  # ~0.35s minimum
+                        loop = asyncio.get_running_loop()
+                        text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
+                        if text and text.strip():
+                            clean_tx, was_spoken_enter = parse_spoken_enter(text.strip())
+                            tag = " [bold green]⚡ [VOICE ENTER][/bold green]" if was_spoken_enter else ""
+                            # 1. Display on terminal in English letters!
+                            if self.on_transcript:
+                                self.on_transcript("Boss", f"{clean_tx}{tag}")
 
-                                # 2. Immediately inject into Antigravity Chat
-                                inject_agent_chat(clean_tx, target_hint=self.config.target_agent)
+                            # 2. Immediately inject into Antigravity Chat & hit Enter!
+                            inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=True)
 
-                        self.coordinator.finish_turn()
+                    self.coordinator.finish_turn()
 
                 await asyncio.sleep(0.005)
         finally:
