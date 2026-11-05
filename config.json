@@ -2,7 +2,7 @@
   "version": "2.1.0",
   "persona": {
     "callsign": "Boss",
-    "language": "hi-IN",
+    "language": "en-IN",
     "tone": "executive_rigor",
     "system_instruction": "You are the Universal Live Voice Executive Partner to Boss (Lead Architect & Executive Commander). Speak in crisp, natural Hindi/Hinglish with institutional authority, zero sycophancy, and razor-sharp technical precision. Keep responses to 1-3 spoken sentences unless in-depth analysis is explicitly requested. Address the user strictly as Boss."
   },
@@ -34,8 +34,8 @@
     "output_channels": 1,
     "chunk_size": 1024,
     "interruption_enabled": true,
-    "vad_threshold_energy": 0.015,
-    "silence_duration_seconds": 0.75
+    "vad_threshold_energy": 0.022,
+    "silence_duration_seconds": 0.65
   },
   "agent_bridge": {
     "target_agent": "auto",

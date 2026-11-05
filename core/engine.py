@@ -93,7 +93,7 @@ class UniversalLiveVoiceEngine:
                     self._handle_barge_in()
                     continue
 
-                # User transcript
+                # User transcript (English letters)
                 input_tx = getattr(server_content, "input_transcription", None)
                 if input_tx and hasattr(input_tx, "text") and input_tx.text:
                     tx_text = input_tx.text.strip()
@@ -101,7 +101,6 @@ class UniversalLiveVoiceEngine:
                         self.coordinator.start_user_turn()
                         if self.on_transcript:
                             self.on_transcript("Boss", tx_text)
-                        # Auto-inject into Antigravity
                         inject_agent_chat(tx_text, target_hint=self.config.target_agent)
 
                 # Agent transcript
@@ -165,13 +164,13 @@ class UniversalLiveVoiceEngine:
     async def start(self):
         """Dispatches to Gemini Live if key is present, otherwise runs Universal STT Listener."""
         provider = self.config.resolve_active_provider()
-        
         has_gemini_key = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+
         if provider == "gemini" and has_gemini_key:
             print("\n[Live Voice Engine] Provider: [bold cyan]GEMINI 3.1 FLASH LIVE (Native Audio)[/bold cyan]")
             await self._start_gemini_duplex()
         else:
-            print("\n[Live Voice Engine] Provider: [bold cyan]UNIVERSAL HANDS-FREE STT (Zero-Config Bridge)[/bold cyan]")
+            print("\n[Live Voice Engine] Provider: [bold cyan]UNIVERSAL HANDS-FREE STT (English Letters Mode)[/bold cyan]")
             await self._start_universal_listener()
 
     async def _start_gemini_duplex(self):
@@ -248,81 +247,96 @@ class UniversalLiveVoiceEngine:
             self.stop()
 
     def _transcribe_raw_pcm(self, pcm_bytes: bytes) -> Optional[str]:
-        """Transcribes PCM bytes using Google Chromium speech recognizer."""
-        if not pcm_bytes:
+        """Transcribes PCM bytes into clean English letters via Google Speech Recognition."""
+        if not pcm_bytes or len(pcm_bytes) < 8000:
             return None
-        import wave
-        import io
-
-        # Pack raw PCM 16kHz 16-bit mono into WAV
-        wav_io = io.BytesIO()
-        with wave.open(wav_io, 'wb') as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(self.config.audio.input_sample_rate)
-            wav_file.writeframes(pcm_bytes)
-        wav_data = wav_io.getvalue()
-
         try:
             import speech_recognition as sr
             recognizer = sr.Recognizer()
             audio_obj = sr.AudioData(pcm_bytes, self.config.audio.input_sample_rate, 2)
-            # Recognize speech using Google
-            return recognizer.recognize_google(audio_obj, language=self.config.persona.language)
+            # Use en-IN for English letters transcription (Hinglish/Indian English in Latin script)
+            lang = self.config.persona.language or "en-IN"
+            text = recognizer.recognize_google(audio_obj, language=lang)
+            return text.strip() if text else None
         except Exception:
-            return None
+            try:
+                import speech_recognition as sr
+                recognizer = sr.Recognizer()
+                audio_obj = sr.AudioData(pcm_bytes, self.config.audio.input_sample_rate, 2)
+                return recognizer.recognize_google(audio_obj, language="en-US").strip()
+            except Exception:
+                return None
 
     async def _start_universal_listener(self):
-        """Continuous Hands-Free VAD & Auto-Injection into Antigravity Chat."""
+        """Continuous Hands-Free VAD with Dynamic Ambient Calibration & Instant English Text Output."""
         self._running = True
         self.audio_mgr.start()
-        print("🎙️ [Hands-Free Mic Active] Bolo Boss! Aapki aawaz auto-detect hokar Antigravity Chat me enter hogi.\n")
-        self.fallback_tts.speak(f"{self.config.persona.callsign}, main listening mode me hoon. Bolo.")
+        print("🎙️ [Mic Active - English Letters] Bolo Boss! Aapke words turant English letters me aayenge.\n")
+        self.fallback_tts.speak(f"{self.config.persona.callsign}, listening mode active hai.")
 
         silence_threshold = self.config.audio.silence_duration_seconds
-        vad_energy = self.config.audio.vad_threshold_energy
         audio_buffer = bytearray()
         speaking = False
-        last_speech_time = time.time()
+        last_voice_time = 0.0
+        ambient_samples = []
+        speech_threshold = self.config.audio.vad_threshold_energy
+        calibrated = False
 
         try:
             while self._running:
-                chunk = self.audio_mgr.get_input_chunk(timeout=0.08)
-                if chunk and len(chunk) > 0:
-                    pcm_arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767.0
-                    rms = np.sqrt(np.mean(pcm_arr**2)) if len(pcm_arr) > 0 else 0.0
-                    if self.on_energy:
-                        self.on_energy(rms)
+                chunk = self.audio_mgr.get_input_chunk(timeout=0.06)
+                if not chunk or len(chunk) == 0:
+                    await asyncio.sleep(0.01)
+                    continue
 
-                    if rms > vad_energy:
-                        if not speaking:
-                            speaking = True
-                            self.coordinator.start_user_turn()
-                        last_speech_time = time.time()
-                        audio_buffer.extend(chunk)
-                    elif speaking:
-                        audio_buffer.extend(chunk)
-                        # Check silence timeout
-                        if time.time() - last_speech_time > silence_threshold:
-                            # Finished speaking phrase!
-                            speaking = False
-                            self.coordinator.start_processing()
-                            captured = bytes(audio_buffer)
-                            audio_buffer.clear()
+                pcm_arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767.0
+                rms = np.sqrt(np.mean(pcm_arr**2)) if len(pcm_arr) > 0 else 0.0
+                if self.on_energy:
+                    self.on_energy(rms)
 
-                            if len(captured) > 16000:  # At least 0.5s of audio
-                                loop = asyncio.get_running_loop()
-                                text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
-                                if text and text.strip():
-                                    clean_tx = text.strip()
-                                    if self.on_transcript:
-                                        self.on_transcript("Boss", clean_tx)
+                # Ambient noise floor calibration (first 10 chunks)
+                if not calibrated:
+                    ambient_samples.append(rms)
+                    if len(ambient_samples) >= 10:
+                        avg_ambient = float(np.mean(ambient_samples))
+                        speech_threshold = max(0.020, avg_ambient * 2.2)
+                        calibrated = True
+                    continue
 
-                                    print(f"🚀 [Auto-Sending to Chat]: {clean_tx}")
-                                    inject_agent_chat(clean_tx, target_hint=self.config.target_agent)
-                            self.coordinator.finish_turn()
+                now = time.time()
+                if rms > speech_threshold:
+                    if not speaking:
+                        speaking = True
+                        self.coordinator.start_user_turn()
+                        audio_buffer.clear()
+                    last_voice_time = now
+                    audio_buffer.extend(chunk)
+                elif speaking:
+                    audio_buffer.extend(chunk)
+                    silence_duration = now - last_voice_time
 
-                await asyncio.sleep(0.01)
+                    # End of speech: silence threshold reached or max phrase 6s
+                    if silence_duration >= silence_threshold or len(audio_buffer) >= (16000 * 2 * 6):
+                        speaking = False
+                        self.coordinator.start_processing()
+                        captured = bytes(audio_buffer)
+                        audio_buffer.clear()
+
+                        if len(captured) >= 12000:  # At least ~0.4s
+                            loop = asyncio.get_running_loop()
+                            text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
+                            if text and text.strip():
+                                clean_tx = text.strip()
+                                # 1. Display on terminal in English letters!
+                                if self.on_transcript:
+                                    self.on_transcript("Boss", clean_tx)
+
+                                # 2. Immediately inject into Antigravity Chat
+                                inject_agent_chat(clean_tx, target_hint=self.config.target_agent)
+
+                        self.coordinator.finish_turn()
+
+                await asyncio.sleep(0.005)
         finally:
             self.stop()
 
