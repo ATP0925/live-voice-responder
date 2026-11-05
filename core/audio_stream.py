@@ -1,14 +1,20 @@
 """
 High-Performance Audio Stream Manager with Instant Barge-In (Interruption) Support
-Handles 16kHz PCM input and 24kHz PCM output via sounddevice.
+Handles 16kHz PCM input and 24kHz PCM output via sounddevice with zero-crash fallbacks.
 """
 
 import sys
 import queue
 import threading
 import numpy as np
-import sounddevice as sd
 from typing import Optional, Callable
+
+try:
+    import sounddevice as sd
+    SOUNDDEVICE_AVAILABLE = True
+except ImportError:
+    SOUNDDEVICE_AVAILABLE = False
+
 
 class AudioStreamManager:
     def __init__(
@@ -32,24 +38,19 @@ class AudioStreamManager:
         self._is_recording = False
         self._running = False
 
-        self.input_stream: Optional[sd.InputStream] = None
-        self.output_stream: Optional[sd.OutputStream] = None
+        self.input_stream = None
+        self.output_stream = None
         self._lock = threading.Lock()
 
     def _input_callback(self, indata, frames, time_info, status):
         """Processes microphone input frames."""
-        if status:
-            pass  # Overflow/underflow indicator
-        
-        # Check energy for VAD / Interruption detection
         pcm_data = indata.copy()
         raw_bytes = (pcm_data * 32767).astype(np.int16).tobytes()
         self.input_queue.put(raw_bytes)
 
-        # Calculate RMS energy
+        # Calculate RMS energy for VAD / Interruption
         rms = np.sqrt(np.mean(pcm_data**2)) if len(pcm_data) > 0 else 0.0
 
-        # If model is currently speaking and user speaks above threshold, trigger barge-in!
         if self._is_playing and rms > self.vad_energy_threshold:
             if self.on_interruption:
                 self.on_interruption()
@@ -57,14 +58,14 @@ class AudioStreamManager:
 
     def _output_callback(self, outdata, frames, time_info, status):
         """Feeds audio frames to sound card speakers."""
-        bytes_needed = frames * 2  # 16-bit mono = 2 bytes per frame
+        bytes_needed = frames * 2
         filled = 0
         out_bytes = bytearray()
 
         while filled < bytes_needed:
             try:
                 chunk = self.output_queue.get_nowait()
-                if chunk is None:  # Stop signal
+                if chunk is None:
                     break
                 out_bytes.extend(chunk)
                 filled = len(out_bytes)
@@ -82,7 +83,6 @@ class AudioStreamManager:
             self._is_playing = True
         elif len(out_bytes) > 0:
             to_play = bytes(out_bytes)
-            padding_len = (bytes_needed - len(to_play)) // 2
             audio_np = np.frombuffer(to_play, dtype=np.int16).astype(np.float32) / 32767.0
             outdata[:len(audio_np), 0] = audio_np
             outdata[len(audio_np):, 0] = 0.0
@@ -93,28 +93,36 @@ class AudioStreamManager:
 
     def start(self):
         """Starts input and output streams."""
+        if not SOUNDDEVICE_AVAILABLE:
+            print("[AudioStream] sounddevice is not available. Audio hardware streaming disabled.")
+            return
+
         with self._lock:
             if self._running:
                 return
 
             self._running = True
-            self.input_stream = sd.InputStream(
-                samplerate=self.input_rate,
-                channels=1,
-                dtype="float32",
-                blocksize=self.chunk_size,
-                callback=self._input_callback
-            )
-            self.output_stream = sd.OutputStream(
-                samplerate=self.output_rate,
-                channels=1,
-                dtype="float32",
-                blocksize=self.chunk_size,
-                callback=self._output_callback
-            )
-            self.input_stream.start()
-            self.output_stream.start()
-            self._is_recording = True
+            try:
+                self.input_stream = sd.InputStream(
+                    samplerate=self.input_rate,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=self.chunk_size,
+                    callback=self._input_callback
+                )
+                self.output_stream = sd.OutputStream(
+                    samplerate=self.output_rate,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=self.chunk_size,
+                    callback=self._output_callback
+                )
+                self.input_stream.start()
+                self.output_stream.start()
+                self._is_recording = True
+            except Exception as e:
+                print(f"[Audio Hardware Warning]: {e}")
+                self._running = False
 
     def stop(self):
         """Stops all streams cleanly."""
@@ -164,4 +172,3 @@ class AudioStreamManager:
     @property
     def is_playing(self) -> bool:
         return self._is_playing
-
