@@ -4,6 +4,7 @@ Enables the voice agent to inspect files, execute system commands,
 and inject instructions into ANY AI Coding Assistant in real time:
 Claude Code, Cursor IDE, OpenAI Codex / Copilot, Google Antigravity, and Windsurf.
 Features hardware scancode Enter simulation and spoken 'Enter' voice-trigger detection.
+Zero-shrink window handling and no menu activation.
 """
 
 import os
@@ -81,7 +82,7 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
     """
     Universally injects voice transcription into the active AI Agent's Chat box
     (Claude Code, Cursor, Antigravity, Codex/VS Code, Windsurf) and triggers Enter.
-    Automatically handles spoken 'enter' keyword stripping and hardware scancodes.
+    Keeps window geometry intact (no shrinking/unmaximizing) and prevents Alt menu activation.
     """
     if not WIN32_AVAILABLE:
         return {"status": "win32_unavailable", "message": message}
@@ -116,42 +117,47 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
 
     if target_hwnd:
         try:
-            # 1. Bring target window to front with ALT bypass
-            win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
-            win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
-            win32gui.SetForegroundWindow(target_hwnd)
-            win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
-            time.sleep(0.12)
+            # 1. Safely focus target window without altering size or pressing ALT
+            curr_fg = win32gui.GetForegroundWindow()
+            if curr_fg != target_hwnd:
+                # If minimized, restore it; otherwise DO NOT touch window dimensions!
+                if win32gui.IsIconic(target_hwnd):
+                    win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+                try:
+                    win32gui.SetForegroundWindow(target_hwnd)
+                except Exception:
+                    pass
+                time.sleep(0.08)
 
             # 2. Copy text to Windows Clipboard
             win32clipboard.OpenClipboard()
             win32clipboard.EmptyClipboard()
             win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
             win32clipboard.CloseClipboard()
-            time.sleep(0.06)
+            time.sleep(0.04)
 
             # 3. Paste (Ctrl + V) with hardware scancodes
             ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
             v_scan = win32api.MapVirtualKey(ord('V'), 0)
             win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
             win32api.keybd_event(ord('V'), v_scan, 0, 0)
-            time.sleep(0.04)
+            time.sleep(0.03)
             win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
             win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
 
-            # Crucial: Allow React/Electron DOM ~180ms to render the pasted text
-            time.sleep(0.18)
+            # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
+            time.sleep(0.16)
 
             # 4. Hit ENTER with hardware scancode (simulates physical Enter key!)
             if force_enter or spoken_enter:
                 enter_scan = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
                 win32api.keybd_event(win32con.VK_RETURN, enter_scan, 0, 0)
-                time.sleep(0.06)
+                time.sleep(0.05)
                 win32api.keybd_event(win32con.VK_RETURN, enter_scan, win32con.KEYEVENTF_KEYUP, 0)
 
-            # 5. Play acoustic confirmation chime
+            # 5. Acoustic confirmation chime
             try:
-                winsound.Beep(1200, 60)
+                winsound.Beep(1200, 50)
             except Exception:
                 pass
 

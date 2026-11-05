@@ -283,9 +283,17 @@ class UniversalLiveVoiceEngine:
             max_speech_duration=6.0
         )
         audio_buffer = bytearray()
+        lock_path = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
 
         try:
             while self._running:
+                # Echo cancellation: If agent is speaking through speakers, mute mic completely!
+                if os.path.exists(lock_path) or self.audio_mgr.is_playing:
+                    self.coordinator.set_state(ConversationState.SPEAKING)
+                    audio_buffer.clear()
+                    await asyncio.sleep(0.04)
+                    continue
+
                 chunk = self.audio_mgr.get_input_chunk(timeout=0.04)
                 if not chunk or len(chunk) == 0:
                     await asyncio.sleep(0.005)
