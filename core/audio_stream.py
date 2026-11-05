@@ -164,3 +164,4 @@ class AudioStreamManager:
     @property
     def is_playing(self) -> bool:
         return self._is_playing
+

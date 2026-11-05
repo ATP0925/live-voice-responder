@@ -40,9 +40,11 @@ class TerminalHUD:
 
     def render_header(self):
         console.print(Panel.fit(
-            f"[bold cyan]🎙️ GEMINI LIVE MULTIMODAL DUPLEX[/bold cyan] | "
+            f"[bold cyan]🎙️ UNIVERSAL LIVE VOICE MULTIMODAL DUPLEX[/bold cyan] | "
             f"[bold magenta]Lead Architect: {self.callsign}[/bold magenta] | "
             f"[green]Status: {self.state}[/green]\n"
-            f"[dim]⚡ Native 24kHz Streaming Audio · Instant Barge-In · Zero Latency[/dim]",
+            f"[dim]⚡ Cross-Agent: Claude Code · Cursor · Codex · Antigravity · Windsurf[/dim]\n"
+            f"[dim]⚡ Native Streaming Audio · Instant Barge-In · Customizable Config[/dim]",
             border_style="cyan"
         ))
+

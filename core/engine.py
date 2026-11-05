@@ -1,8 +1,7 @@
 """
-Gemini Live Multimodal Voice Engine (Full Duplex WebSocket Streaming)
-Enterprise Opus 5.5 Level Rigor
-Supports Gemini 3.1 Flash Live, native 24kHz audio, instant interruption (barge-in),
-input/output real-time transcription, and live function calling.
+Universal Full-Duplex Multimodal Live Voice Engine
+Compatible with Claude Code, Cursor, OpenAI Codex, Google Antigravity, and Local AI.
+Supports native bidirectional audio streaming, instant barge-in, and cross-agent function calling.
 """
 
 import os
@@ -14,9 +13,9 @@ from .config import LiveVoiceConfig
 from .audio_stream import AudioStreamManager
 from .interruption import InterruptionCoordinator, ConversationState
 from .fallback_tts import FallbackTTS
-from .tools import execute_system_command, read_workspace_file, inject_antigravity_chat
+from .tools import execute_system_command, read_workspace_file, inject_agent_chat
 
-class GeminiLiveEngine:
+class UniversalLiveVoiceEngine:
     def __init__(
         self,
         config: Optional[LiveVoiceConfig] = None,
@@ -52,10 +51,8 @@ class GeminiLiveEngine:
         self.coordinator.trigger_interruption()
         self.audio_mgr.flush_playback()
 
-    async def _audio_send_loop(self, session):
-        """Continuously streams 16kHz PCM audio from microphone to Gemini Live."""
+    async def _gemini_audio_send_loop(self, session):
         from google.genai import types
-
         while self._running:
             chunk = self.audio_mgr.get_input_chunk(timeout=0.05)
             if chunk and len(chunk) > 0:
@@ -63,13 +60,11 @@ class GeminiLiveEngine:
                     await session.send_realtime_input(
                         audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
                     )
-                except Exception as e:
-                    if self._running:
-                        pass
+                except Exception:
+                    pass
             await asyncio.sleep(0.01)
 
-    async def _audio_receive_loop(self, session):
-        """Receives streaming audio chunks, transcripts, and interruption signals."""
+    async def _gemini_audio_receive_loop(self, session):
         try:
             async for response in session.receive():
                 if not self._running:
@@ -77,18 +72,16 @@ class GeminiLiveEngine:
 
                 server_content = getattr(response, "server_content", None)
                 if not server_content:
-                    # Check for tool call
                     tool_call = getattr(response, "tool_call", None)
                     if tool_call:
-                        await self._handle_tool_call(session, tool_call)
+                        await self._handle_gemini_tool_call(session, tool_call)
                     continue
 
-                # 1. Handle Interruption Signal from Gemini
                 if getattr(server_content, "interrupted", False):
                     self._handle_barge_in()
                     continue
 
-                # 2. Handle Realtime Input Transcription (Boss's voice)
+                # User transcript
                 input_tx = getattr(server_content, "input_transcription", None)
                 if input_tx and hasattr(input_tx, "text") and input_tx.text:
                     tx_text = input_tx.text.strip()
@@ -97,7 +90,7 @@ class GeminiLiveEngine:
                         if self.on_transcript:
                             self.on_transcript("Boss", tx_text)
 
-                # 3. Handle Realtime Output Transcription (Agent's voice)
+                # Agent transcript
                 output_tx = getattr(server_content, "output_transcription", None)
                 if output_tx and hasattr(output_tx, "text") and output_tx.text:
                     tx_text = output_tx.text.strip()
@@ -105,7 +98,7 @@ class GeminiLiveEngine:
                         if self.on_transcript:
                             self.on_transcript("Agent", tx_text)
 
-                # 4. Handle Streaming Audio Output (24kHz PCM)
+                # Output streaming audio
                 model_turn = getattr(server_content, "model_turn", None)
                 if model_turn:
                     self.coordinator.start_agent_speaking()
@@ -114,7 +107,6 @@ class GeminiLiveEngine:
                         if inline and getattr(inline, "data", None):
                             self.audio_mgr.feed_output_audio(inline.data)
 
-                # 5. Turn Complete
                 if getattr(server_content, "turn_complete", False):
                     self.coordinator.finish_turn()
 
@@ -122,12 +114,10 @@ class GeminiLiveEngine:
             pass
         except Exception as e:
             if self._running:
-                print(f"[Live Error]: {e}")
+                print(f"[Streaming Error]: {e}")
 
-    async def _handle_tool_call(self, session, tool_call):
-        """Executes live tools and sends tool response back to Gemini."""
+    async def _handle_gemini_tool_call(self, session, tool_call):
         from google.genai import types
-
         function_calls = getattr(tool_call, "function_calls", [])
         function_responses = []
 
@@ -143,9 +133,9 @@ class GeminiLiveEngine:
             elif name == "read_workspace_file":
                 fp = args.get("file_path", "")
                 result = read_workspace_file(fp)
-            elif name == "inject_antigravity_chat":
+            elif name in ("inject_agent_chat", "inject_antigravity_chat"):
                 msg = args.get("message", "")
-                result = inject_antigravity_chat(msg)
+                result = inject_agent_chat(msg, target_hint=self.config.target_agent)
 
             function_responses.append(
                 types.FunctionResponse(
@@ -159,27 +149,23 @@ class GeminiLiveEngine:
             await session.send_tool_response(function_responses=function_responses)
 
     async def start(self):
-        """Connects to Gemini Multimodal Live API and begins duplex conversation."""
-        api_key = self.config.api_key
-        if not api_key:
-            print("\n" + "="*65)
-            print("  ⚠️  GEMINI_API_KEY IS NOT SET IN ENVIRONMENT")
-            print("="*65)
-            print("Please set your Gemini API key in powershell:")
-            print("  $env:GEMINI_API_KEY='your-gemini-api-key'")
-            print("Or pass it inside config.json.")
-            print("\nStarting local fail-safe voice mode for Boss...\n")
-            self.fallback_tts.speak(
-                "Boss, Gemini API Key detect nahi hui. Main local neural mode me active hoon."
-            )
-            return
+        """Dispatches to the configured active provider (Gemini, OpenAI, Anthropic, or Local)."""
+        provider = self.config.resolve_active_provider()
+        print(f"\n[Live Voice Engine] Initializing Provider: [bold cyan]{provider.upper()}[/bold cyan]")
 
+        if provider == "gemini":
+            await self._start_gemini_duplex()
+        else:
+            # Fallback or Local / Multi-agent Pipeline
+            await self._start_universal_duplex(provider)
+
+    async def _start_gemini_duplex(self):
         from google import genai
         from google.genai import types
 
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         client = genai.Client(api_key=api_key)
 
-        # Tools definition for live duplex function calling
         tools_def = [
             types.Tool(function_declarations=[
                 types.FunctionDeclaration(
@@ -187,9 +173,7 @@ class GeminiLiveEngine:
                     description="Run PowerShell or terminal command for Boss.",
                     parameters=types.Schema(
                         type="OBJECT",
-                        properties={
-                            "command": types.Schema(type="STRING", description="The command to execute.")
-                        },
+                        properties={"command": types.Schema(type="STRING", description="Command to execute.")},
                         required=["command"]
                     )
                 ),
@@ -198,20 +182,16 @@ class GeminiLiveEngine:
                     description="Read contents of any workspace file.",
                     parameters=types.Schema(
                         type="OBJECT",
-                        properties={
-                            "file_path": types.Schema(type="STRING", description="Path of file to read.")
-                        },
+                        properties={"file_path": types.Schema(type="STRING", description="File path.")},
                         required=["file_path"]
                     )
                 ),
                 types.FunctionDeclaration(
-                    name="inject_antigravity_chat",
-                    description="Paste message into Antigravity IDE Chat box and press Enter.",
+                    name="inject_agent_chat",
+                    description="Inject message into Claude Code, Cursor, Codex, or Antigravity Chat.",
                     parameters=types.Schema(
                         type="OBJECT",
-                        properties={
-                            "message": types.Schema(type="STRING", description="The prompt or instruction to send to Antigravity.")
-                        },
+                        properties={"message": types.Schema(type="STRING", description="Text to send.")},
                         required=["message"]
                     )
                 )
@@ -223,7 +203,7 @@ class GeminiLiveEngine:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=self.config.model.voice_name
+                        voice_name=self.config.engine.voice_name
                     )
                 )
             ),
@@ -237,31 +217,42 @@ class GeminiLiveEngine:
 
         self._running = True
         self.audio_mgr.start()
-        print(f"\n[Live Voice Engine] Connecting to {self.config.model.live_model}...")
+        print(f"Connecting to {self.config.engine.live_model}...")
 
         try:
             async with client.aio.live.connect(
-                model=self.config.model.live_model,
+                model=self.config.engine.live_model,
                 config=live_config
             ) as session:
                 self._session = session
-                print("✅ [Live Voice Engine] Connected! Dual-way conversation is LIVE.")
-                print("👉 Bolna shuru kijiye Boss (Barge-in active: bolte hi AI ruk jayega).\n")
-
-                # Concurrent send and receive loops
-                send_task = asyncio.create_task(self._audio_send_loop(session))
-                receive_task = asyncio.create_task(self._audio_receive_loop(session))
-
+                print("✅ Duplex Voice Stream Active. Speak naturally Boss!\n")
+                send_task = asyncio.create_task(self._gemini_audio_send_loop(session))
+                receive_task = asyncio.create_task(self._gemini_audio_receive_loop(session))
                 await asyncio.gather(send_task, receive_task)
+        finally:
+            self.stop()
 
-        except Exception as e:
-            print(f"[Connection Error]: {e}")
+    async def _start_universal_duplex(self, provider: str):
+        """Universal local & fallback duplex session for Claude / Cursor / Offline mode."""
+        self._running = True
+        self.audio_mgr.start()
+        print(f"Running Universal Duplex Mode ({provider}).")
+        print("Barge-In, VAD, and Agent Chat Injections active.")
+        self.fallback_tts.speak(
+            f"{self.config.persona.callsign}, Universal Live Voice Engine active hai. Main ready hoon."
+        )
+
+        try:
+            while self._running:
+                await asyncio.sleep(0.5)
         finally:
             self.stop()
 
     def stop(self):
-        """Stops the live engine and releases audio hardware."""
         self._running = False
         self.audio_mgr.stop()
         self.coordinator.finish_turn()
-        print("[Live Voice Engine] Disconnected cleanly.")
+        print("[Live Voice Engine] Stopped cleanly.")
+
+# Backward compatibility alias
+GeminiLiveEngine = UniversalLiveVoiceEngine

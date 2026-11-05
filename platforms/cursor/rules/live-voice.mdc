@@ -12,3 +12,4 @@ alwaysApply: true
   - 24kHz PCM audio output streaming
   - Real-time barge-in interruption handling
   - Zero-fail 3-tier offline neural fallback
+

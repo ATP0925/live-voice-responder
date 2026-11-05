@@ -30,3 +30,4 @@ python "C:\Users\atpad\.gemini\antigravity\scratch\live-voice-responder\live_voi
 # Or Background Hotkey Daemon (F8 Push-to-Talk)
 python "C:\Users\atpad\.gemini\antigravity\scratch\live-voice-responder\live_voice_daemon.py"
 ```
+

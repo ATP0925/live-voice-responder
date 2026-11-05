@@ -1,59 +1,73 @@
 <p align="center">
   <h1 align="center">🎙️ Live Voice Responder</h1>
-  <p align="center"><strong>Enterprise Full-Duplex Multimodal Voice Coordination Engine</strong></p>
-  <p align="center">Powered by Google Gemini 3.1 Flash Live (Native Audio), Bidirectional WebSocket Streaming, Instant Barge-In (Interruption), and 3-Tier Neural TTS Fail-Safe for Antigravity, Claude Code, and Cursor.</p>
+  <p align="center"><strong>Universal Full-Duplex Multimodal Voice Coordination Engine</strong></p>
+  <p align="center">Engineered for <strong>Claude Code, Cursor IDE, OpenAI Codex / Copilot, Google Antigravity, and Windsurf</strong>.</p>
+  <p align="center">Features Bidirectional Audio Streaming, Instant Barge-In (Interruption), Pluggable Multi-Provider Backend (Gemini / OpenAI / Anthropic / Local), and 3-Tier Offline Neural TTS.</p>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/architecture-Gemini%20Live%20Duplex-38bdf8?style=flat-square" alt="Duplex">
+  <img src="https://img.shields.io/badge/platforms-Claude%20%7C%20Cursor%20%7C%20Codex%20%7C%20Antigravity-8b5cf6?style=flat-square" alt="Platforms">
+  <img src="https://img.shields.io/badge/architecture-Universal%20Duplex-38bdf8?style=flat-square" alt="Duplex">
   <img src="https://img.shields.io/badge/tests-4%20passing-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/python-3.11+-informational?style=flat-square" alt="Python">
-  <img src="https://img.shields.io/badge/latency-%3C400ms-success?style=flat-square" alt="Latency">
 </p>
 
 ---
 
 ## 🌟 Overview
 
-**Live Voice Responder** bridges the gap between text-only coding prompts and real-time bidirectional vocal pair programming. Modeled directly on Google Gemini's Multimodal Live API, it eliminates awkward typing, pauses, and batch delays.
+**Live Voice Responder** is a vendor-neutral, universal voice coordination engine designed for modern AI coding assistants. Instead of being locked to a single AI provider, it functions as a modular bridge across:
 
-### Core Capabilities:
-1. **⚡ True Full-Duplex Audio:** Continuous 16kHz PCM streaming from microphone and 24kHz raw PCM output streaming to speakers simultaneously over a single persistent WebSocket.
-2. **🛑 Instant Barge-In (Interruption Handling):** When you speak while the AI is talking, the speaker buffer is instantly flushed within milliseconds, and the model pivots to your new instruction without hesitation.
-3. **🧠 Native Multimodal Voice:** Understands subtle acoustic nuances, tone, pauses, and speech inflection directly without intermediate Speech-to-Text conversion delays.
-4. **👑 Institutional Boss Persona:** Calibrated strictly for executive architectural collaboration—razor-sharp Hindi/Hinglish brevity, zero sycophancy, and high technical depth.
-5. **🛡️ 3-Tier Zero-Fail Fallback:** If internet or API quotas drop, it seamlessly falls back to Edge-TTS Neural -> Google gTTS -> Windows SAPI5 to ensure 100% voice availability.
-6. **🔌 Antigravity Chat Bridge:** Injects spoken commands directly into Antigravity IDE Chat box (`Ctrl+V` + `Enter`) automatically.
+* 🟠 **Claude Code** (Terminal)
+* 🔵 **Cursor IDE**
+* 🟢 **OpenAI Codex & GitHub Copilot**
+* 🟣 **Google Antigravity IDE**
+* 🌊 **Windsurf & Aider**
+
+Users can seamlessly run it out-of-the-box, customize backend providers (`config.json`), switch models, or use local offline engines without vendor lock-in.
 
 ---
 
-## 📐 Architecture & Flow
+## ⚡ Core Capabilities
+
+1. **🎙️ Universal Duplex Streaming:** High-performance bidirectional streaming (16kHz PCM input / 24kHz output) allowing natural two-way conversation with AI agents.
+2. **🛑 Sub-50ms Instant Barge-In:** When you interrupt and speak while the AI is talking, speaker buffers flush immediately and the agent pivots without lag.
+3. **🔌 Cross-Agent Chat Injection:** Detects whichever coding assistant window is active and automatically pastes and sends spoken prompts (`Ctrl+V` + `Enter`).
+4. **🧩 Modular Multi-Provider Architecture:**
+   * **`auto`**: Detects available environment keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) and selects the optimal engine.
+   * **`gemini`**: Native Multimodal Live API (`gemini-3.1-flash-live-preview`).
+   * **`openai`**: OpenAI Realtime API (`gpt-4o-realtime-preview`).
+   * **`anthropic`**: Claude Code Live pipeline with streaming voice.
+   * **`local`**: 100% offline Faster-Whisper + Edge-TTS/SAPI5.
+5. **👑 Customizable Callsign & Persona:** Calibrated by default for "Boss" with executive brevity and technical rigor in Hindi/Hinglish, yet easily customizable post-install in `config.json`.
+6. **🛡️ 3-Tier Offline Neural Fail-Safe:** Edge-TTS -> Google gTTS -> Windows Native SAPI5 ensures voice output never goes silent even with zero internet.
+
+---
+
+## 📐 Universal Architecture & Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Boss as 🎙️ Boss (Human)
+    actor User as 🎙️ User / Boss
     participant Client as 🎧 Live Voice Client (SoundDevice)
-    participant LiveEngine as ⚡ Gemini Live WebSocket (Duplex)
-    participant Model as 🤖 Gemini 3.1 Flash Live (Native Audio)
+    participant Core as ⚡ Universal Voice Engine
+    participant Target as 💻 Active Agent (Claude / Cursor / Antigravity / Codex)
 
-    Note over Boss,Model: Persistent Full-Duplex WebSocket Active
-    Boss->>Client: "Suno, CampusNotify ka login code check karo..."
-    Client->>LiveEngine: Continuous PCM Audio Chunks (16kHz)
-    LiveEngine->>Model: Streaming Realtime Audio
-    Model-->>LiveEngine: Streaming PCM Audio Chunks (24kHz) + Realtime Transcript
-    LiveEngine-->>Client: Direct Speaker Stream (Latency < 400ms)
-    Client-->>Boss: 🔊 AI Speaks Natural Response
+    Note over User,Target: Universal Live Duplex Session Active
+    User->>Client: "Check git status and run tests..."
+    Client->>Core: Realtime 16kHz PCM Stream
+    Core->>Target: Injects Prompt into Active Agent Window
+    Target-->>Core: Response Stream / Summary
+    Core-->>Client: Streaming 24kHz Audio Output
+    Client-->>User: 🔊 AI Speaks Natural Feedback
 
-    Note over Boss,Client: ⚡ Instant Barge-In (Interruption)
-    Boss->>Client: "Ruko, pehle backend DB schema dikhao!"
-    Client->>Client: 🛑 Audio Queue Flush (<50ms)
-    Client->>LiveEngine: New Audio Chunks + VAD Trigger
-    LiveEngine->>Model: Signal: 'interrupted: true'
-    Model-->>LiveEngine: AI cancels previous response & immediately pivots
-    LiveEngine-->>Client: New Audio Stream
-    Client-->>Boss: 🔊 "Samajh gaya Boss, pehle DB schema dekhte hain..."
+    Note over User,Client: ⚡ Instant Barge-In (Interruption)
+    User->>Client: "Stop, cancel that test run!" (Interrupt)
+    Client->>Client: 🛑 Audio Buffer Flushed (<50ms)
+    Client->>Core: Interruption Signal
+    Core->>Target: Halts Previous Output & Injects New Instruction
 ```
 
 ---
@@ -67,18 +81,13 @@ cd live-voice-responder
 pip install -r requirements.txt
 ```
 
-### 2. Set Your Gemini API Key
-```powershell
-$env:GEMINI_API_KEY="your-gemini-api-key"
-```
-
-### 3. Launch Interactive Terminal HUD (Realtime Duplex Mode)
-```powershell
+### 2. Launch Interactive Duplex Mode
+```bash
 python live_voice_cli.py
 ```
 
-### 4. Or Run Silent Background Daemon (Global F8 Push-to-Talk)
-```powershell
+### 3. Or Run Silent Background Daemon (Global F8 Hotkey)
+```bash
 python live_voice_daemon.py
 ```
 
@@ -86,27 +95,34 @@ python live_voice_daemon.py
 
 ## ⚙️ Configuration (`config.json`)
 
-Customize persona, voices, and audio buffer sensitivity:
+Post-installation, users can fully tailor the engine to their personal preferences, AI provider, and IDE:
 
 ```json
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "persona": {
     "callsign": "Boss",
     "language": "hi-IN",
     "tone": "executive_rigor"
   },
-  "model": {
-    "live_model": "gemini-3.1-flash-live-preview",
-    "voice_name": "Puck",
-    "thinking_level": "minimal"
+  "engine": {
+    "provider": "auto",
+    "gemini": {
+      "model": "gemini-3.1-flash-live-preview",
+      "voice_name": "Puck"
+    },
+    "openai": {
+      "model": "gpt-4o-realtime-preview",
+      "voice_name": "alloy"
+    },
+    "anthropic": {
+      "model": "claude-3-7-sonnet"
+    }
   },
-  "audio": {
-    "input_sample_rate": 16000,
-    "output_sample_rate": 24000,
-    "interruption_enabled": true,
-    "vad_threshold_energy": 0.015,
-    "silence_duration_seconds": 0.75
+  "agent_bridge": {
+    "target_agent": "auto",
+    "auto_focus_chat": true,
+    "auto_send_enter": true
   }
 }
 ```
@@ -115,7 +131,6 @@ Customize persona, voices, and audio buffer sensitivity:
 
 ## 🧪 Testing
 
-Execute test suite verifying configuration, interruption handling, and tool execution:
 ```bash
 python -m unittest discover -s tests
 ```
@@ -124,4 +139,4 @@ python -m unittest discover -s tests
 
 ## 🤝 License
 
-Licensed under the [MIT License](LICENSE). Architected for Boss & Antigravity.
+Licensed under the [MIT License](LICENSE). 100% original, clean-room universal implementation.

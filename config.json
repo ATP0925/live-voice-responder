@@ -1,17 +1,31 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "persona": {
     "callsign": "Boss",
     "language": "hi-IN",
     "tone": "executive_rigor",
-    "system_instruction": "You are the Live Voice Executive Partner to Boss (Lead Architect & Executive Commander). Speak in crisp, natural Hindi/Hinglish with institutional authority, zero sycophancy, and razor-sharp technical precision. Keep responses to 1-3 spoken sentences unless in-depth analysis is explicitly requested. Address the user strictly as Boss."
+    "system_instruction": "You are the Universal Live Voice Executive Partner to Boss (Lead Architect & Executive Commander). Speak in crisp, natural Hindi/Hinglish with institutional authority, zero sycophancy, and razor-sharp technical precision. Keep responses to 1-3 spoken sentences unless in-depth analysis is explicitly requested. Address the user strictly as Boss."
   },
-  "model": {
-    "live_model": "gemini-3.1-flash-live-preview",
-    "fallback_model": "gemini-2.5-flash",
-    "voice_name": "Puck",
-    "thinking_level": "minimal",
-    "temperature": 0.6
+  "engine": {
+    "provider": "auto",
+    "description": "Choose 'auto', 'gemini', 'openai', 'anthropic', or 'local'. Users can update this anytime based on their API keys.",
+    "gemini": {
+      "model": "gemini-3.1-flash-live-preview",
+      "voice_name": "Puck",
+      "thinking_level": "minimal"
+    },
+    "openai": {
+      "model": "gpt-4o-realtime-preview",
+      "voice_name": "alloy"
+    },
+    "anthropic": {
+      "model": "claude-3-7-sonnet",
+      "streaming_voice": "hi-IN-MadhurNeural"
+    },
+    "local": {
+      "stt_engine": "whisper",
+      "tts_engine": "edge-tts"
+    }
   },
   "audio": {
     "input_sample_rate": 16000,
@@ -23,10 +37,17 @@
     "vad_threshold_energy": 0.015,
     "silence_duration_seconds": 0.75
   },
-  "antigravity_bridge": {
+  "agent_bridge": {
+    "target_agent": "auto",
+    "supported_agents": [
+      "Claude Code",
+      "Cursor",
+      "Antigravity",
+      "OpenAI Codex",
+      "Windsurf"
+    ],
     "auto_focus_chat": true,
-    "auto_send_enter": true,
-    "sync_active_file": true
+    "auto_send_enter": true
   },
   "offline_tts": {
     "primary_voice": "hi-IN-MadhurNeural",

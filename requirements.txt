@@ -6,3 +6,4 @@ edge-tts>=6.1.12
 rich>=13.7.0
 pynput>=1.7.6
 pywin32>=306
+

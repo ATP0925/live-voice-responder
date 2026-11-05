@@ -1,5 +1,6 @@
 """
-Configuration Loader & Validator for Live Voice Responder
+Universal Configuration Loader & Validator for Live Voice Responder
+Supports multi-provider configuration (Auto, Gemini, OpenAI, Anthropic, Local)
 Enterprise Opus 5.5 Architecture
 """
 
@@ -17,19 +18,23 @@ class PersonaConfig:
     language: str = "hi-IN"
     tone: str = "executive_rigor"
     system_instruction: str = (
-        "You are the Live Voice Executive Partner to Boss (Lead Architect & Executive Commander). "
+        "You are the Universal Live Voice Executive Partner to Boss (Lead Architect & Executive Commander). "
         "Speak in crisp, natural Hindi/Hinglish with institutional authority, zero sycophancy, "
         "and razor-sharp technical precision. Keep responses to 1-3 spoken sentences unless in-depth "
         "analysis is explicitly requested. Address the user strictly as Boss."
     )
 
 @dataclass
-class ModelConfig:
+class EngineConfig:
+    provider: str = "auto"
     live_model: str = "gemini-3.1-flash-live-preview"
-    fallback_model: str = "gemini-2.5-flash"
     voice_name: str = "Puck"
     thinking_level: str = "minimal"
-    temperature: float = 0.6
+    openai_model: str = "gpt-4o-realtime-preview"
+    openai_voice: str = "alloy"
+    anthropic_model: str = "claude-3-7-sonnet"
+
+ModelConfig = EngineConfig
 
 @dataclass
 class AudioConfig:
@@ -52,10 +57,15 @@ class OfflineTTSConfig:
 @dataclass
 class LiveVoiceConfig:
     persona: PersonaConfig = field(default_factory=PersonaConfig)
-    model: ModelConfig = field(default_factory=ModelConfig)
+    engine: EngineConfig = field(default_factory=EngineConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     offline_tts: OfflineTTSConfig = field(default_factory=OfflineTTSConfig)
-    api_key: Optional[str] = None
+    target_agent: str = "auto"
+
+    # Backward compatibility properties
+    @property
+    def model(self):
+        return self.engine
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "LiveVoiceConfig":
@@ -69,16 +79,44 @@ class LiveVoiceConfig:
                 print(f"[Warning] Failed to load config from {cfg_path}: {e}")
 
         persona_data = data.get("persona", {})
-        model_data = data.get("model", {})
+        engine_data = data.get("engine", {}) or data.get("model", {})
         audio_data = data.get("audio", {})
         tts_data = data.get("offline_tts", {})
+        agent_data = data.get("agent_bridge", {})
 
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        # Extract nested provider specs if present
+        provider = engine_data.get("provider", "auto")
+        gemini_cfg = engine_data.get("gemini", {})
+        openai_cfg = engine_data.get("openai", {})
+        anthropic_cfg = engine_data.get("anthropic", {})
+
+        engine_obj = EngineConfig(
+            provider=provider,
+            live_model=gemini_cfg.get("model", engine_data.get("live_model", "gemini-3.1-flash-live-preview")),
+            voice_name=gemini_cfg.get("voice_name", engine_data.get("voice_name", "Puck")),
+            thinking_level=gemini_cfg.get("thinking_level", engine_data.get("thinking_level", "minimal")),
+            openai_model=openai_cfg.get("model", "gpt-4o-realtime-preview"),
+            openai_voice=openai_cfg.get("voice_name", "alloy"),
+            anthropic_model=anthropic_cfg.get("model", "claude-3-7-sonnet")
+        )
 
         return cls(
             persona=PersonaConfig(**persona_data) if persona_data else PersonaConfig(),
-            model=ModelConfig(**model_data) if model_data else ModelConfig(),
+            engine=engine_obj,
             audio=AudioConfig(**audio_data) if audio_data else AudioConfig(),
             offline_tts=OfflineTTSConfig(**tts_data) if tts_data else OfflineTTSConfig(),
-            api_key=api_key
+            target_agent=agent_data.get("target_agent", "auto")
         )
+
+    def resolve_active_provider(self) -> str:
+        """Determines provider based on configuration and available environment keys."""
+        if self.engine.provider != "auto":
+            return self.engine.provider
+
+        if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+            return "gemini"
+        elif os.getenv("OPENAI_API_KEY"):
+            return "openai"
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            return "anthropic"
+        return "local"

@@ -63,3 +63,4 @@ class InterruptionCoordinator:
             "interruptions_count": self.interruptions_count,
             "avg_latency_ms": round(avg_latency, 1)
         }
+

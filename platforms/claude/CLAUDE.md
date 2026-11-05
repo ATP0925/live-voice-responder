@@ -6,3 +6,4 @@
   `python "C:\Users\atpad\.gemini\config\skills\live-voice-responder\neural_speak.py" "Boss, <summary>"`
 - Full duplex live mode can be launched via:
   `python live_voice_cli.py`
+
