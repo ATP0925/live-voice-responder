@@ -16,7 +16,9 @@ except ImportError:
 
 
 class SpeechNoiseFilter:
-    """Bandpass filter that strips fan noise (<300Hz) and high hiss (>3400Hz)."""
+    """Bandpass filter that strips fan noise (<300Hz) and high hiss (>3400Hz).
+    Uses SciPy 4th-order Butterworth when available, or zero-dependency Pure-NumPy highpass fallback.
+    """
     def __init__(self, sample_rate: int = 16000):
         self.sample_rate = sample_rate
         if SCIPY_AVAILABLE:
@@ -24,6 +26,12 @@ class SpeechNoiseFilter:
             self.sos = butter(4, [300, 3400], btype='bandpass', fs=sample_rate, output='sos')
         else:
             self.sos = None
+            cutoff = 300.0
+            RC = 1.0 / (2.0 * np.pi * cutoff)
+            dt = 1.0 / sample_rate
+            self.alpha = float(RC / (RC + dt))
+            self.prev_x = 0.0
+            self.prev_y = 0.0
 
     def filter_chunk(self, pcm_float: np.ndarray) -> np.ndarray:
         if self.sos is not None and len(pcm_float) > 16:
@@ -31,6 +39,20 @@ class SpeechNoiseFilter:
                 return sosfilt(self.sos, pcm_float)
             except Exception:
                 pass
+        elif len(pcm_float) > 1:
+            # Pure NumPy IIR Highpass fallback (removes fan rumble <300Hz)
+            y = np.empty_like(pcm_float)
+            px = self.prev_x
+            py = self.prev_y
+            a = self.alpha
+            for i in range(len(pcm_float)):
+                curr_y = a * (py + pcm_float[i] - px)
+                y[i] = curr_y
+                px = pcm_float[i]
+                py = curr_y
+            self.prev_x = px
+            self.prev_y = py
+            return y
         return pcm_float
 
 
