@@ -13,6 +13,7 @@ class ConversationState(Enum):
     PROCESSING = "PROCESSING"
     SPEAKING = "SPEAKING"
     INTERRUPTED = "INTERRUPTED"
+    MUTED = "MUTED"
 
 class InterruptionCoordinator:
     def __init__(self, on_state_change: Optional[Callable[[ConversationState], None]] = None):

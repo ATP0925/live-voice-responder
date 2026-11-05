@@ -108,27 +108,56 @@ class TerminalHUD:
         orb = ORB_FRAMES[self.frame_idx]
 
         # State badge & color
-        if self.state == "LISTENING":
+        if self.state == "MUTED":
+            orb = "[bold red]( ✕ ✕ )[/bold red]"
+            status_badge = "[bold red]🔇 MIC MUTED / PAUSED (Press F9 to Resume)[/bold red]"
+            vu_meter = "[bold red][MUTED][/bold red] -∞dB"
+            waveform = Text("— " * 22, style="dim red")
+            border_col = "bold red"
+            panel_title = f"[bold red]🔇 LIVE VOICE PAUSED[/bold red] [dim]({self.callsign}) — Press F9 to Unmute[/dim]"
+        elif self.state == "LISTENING":
+            border_col = "cyan" if self.current_energy <= 0.015 else "bright_green"
+            panel_title = f"[bold cyan]🎙️ GEMINI LIVE DUPLEX HUD[/bold cyan] [dim]({self.callsign})[/dim]"
+            waveform = self.generate_wave_bars(num_bars=22)
+            db = int(20 * math.log10(max(1e-5, self.current_energy)))
+            meter_filled = min(15, max(0, int((self.current_energy * 50))))
+            vu_meter = f"[bold green]{'█' * meter_filled}[/bold green][dim grey]{'░' * (15 - meter_filled)}[/dim grey] {db}dB"
             if self.current_energy > 0.015:
                 status_badge = "[bold green]● HEARING YOU (Speaking)[/bold green]"
             else:
-                status_badge = "[bold cyan]● LISTENING (Speak anytime)[/bold cyan]"
+                status_badge = "[bold cyan]● LISTENING (Speak anytime | F9 to Mute)[/bold cyan]"
         elif self.state == "PROCESSING":
+            border_col = "yellow"
+            panel_title = f"[bold cyan]🎙️ GEMINI LIVE DUPLEX HUD[/bold cyan] [dim]({self.callsign})[/dim]"
+            waveform = self.generate_wave_bars(num_bars=22)
+            db = int(20 * math.log10(max(1e-5, self.current_energy)))
+            meter_filled = min(15, max(0, int((self.current_energy * 50))))
+            vu_meter = f"[bold green]{'█' * meter_filled}[/bold green][dim grey]{'░' * (15 - meter_filled)}[/dim grey] {db}dB"
             status_badge = "[bold yellow]✦ PROCESSING SPEECH...[/bold yellow]"
         elif self.state == "SPEAKING":
+            border_col = "magenta"
+            panel_title = f"[bold cyan]🎙️ GEMINI LIVE DUPLEX HUD[/bold cyan] [dim]({self.callsign})[/dim]"
+            waveform = self.generate_wave_bars(num_bars=22)
+            db = int(20 * math.log10(max(1e-5, self.current_energy)))
+            meter_filled = min(15, max(0, int((self.current_energy * 50))))
+            vu_meter = f"[bold green]{'█' * meter_filled}[/bold green][dim grey]{'░' * (15 - meter_filled)}[/dim grey] {db}dB"
             status_badge = "[bold magenta]🔊 AGENT SPEAKING...[/bold magenta]"
         elif self.state == "INTERRUPTED":
+            border_col = "bold red"
+            panel_title = f"[bold cyan]🎙️ GEMINI LIVE DUPLEX HUD[/bold cyan] [dim]({self.callsign})[/dim]"
+            waveform = self.generate_wave_bars(num_bars=22)
+            db = int(20 * math.log10(max(1e-5, self.current_energy)))
+            meter_filled = min(15, max(0, int((self.current_energy * 50))))
+            vu_meter = f"[bold green]{'█' * meter_filled}[/bold green][dim grey]{'░' * (15 - meter_filled)}[/dim grey] {db}dB"
             status_badge = "[bold red]🛑 BARGE-IN INTERRUPTED[/bold red]"
         else:
+            border_col = "cyan"
+            panel_title = f"[bold cyan]🎙️ GEMINI LIVE DUPLEX HUD[/bold cyan] [dim]({self.callsign})[/dim]"
+            waveform = self.generate_wave_bars(num_bars=22)
+            db = int(20 * math.log10(max(1e-5, self.current_energy)))
+            meter_filled = min(15, max(0, int((self.current_energy * 50))))
+            vu_meter = f"[bold green]{'█' * meter_filled}[/bold green][dim grey]{'░' * (15 - meter_filled)}[/dim grey] {db}dB"
             status_badge = f"[cyan]{self.state}[/cyan]"
-
-        # Mic dB & VU meter
-        db = int(20 * math.log10(max(1e-5, self.current_energy)))
-        meter_filled = min(15, max(0, int((self.current_energy * 50))))
-        vu_meter = f"[bold green]{'█' * meter_filled}[/bold green][dim grey]{'░' * (15 - meter_filled)}[/dim grey] {db}dB"
-
-        # Waveform
-        waveform = self.generate_wave_bars(num_bars=22)
 
         content = Table.grid(padding=(0, 1))
         content.add_column(justify="center")
@@ -137,8 +166,8 @@ class TerminalHUD:
 
         return Panel(
             content,
-            title=f"[bold cyan]🎙️ GEMINI LIVE DUPLEX HUD[/bold cyan] [dim]({self.callsign})[/dim]",
-            border_style="cyan" if self.current_energy <= 0.015 else "bright_green",
+            title=panel_title,
+            border_style=border_col,
             padding=(0, 1)
         )
 
@@ -147,6 +176,6 @@ class TerminalHUD:
             f"[bold cyan]🎙️ UNIVERSAL LIVE VOICE MULTIMODAL DUPLEX[/bold cyan] | "
             f"[bold magenta]Lead Architect: {self.callsign}[/bold magenta] | "
             f"[green]Status: {self.state}[/green]\n"
-            f"[dim]⚡ Real-Time Voice Wave Visualizer · Instant Barge-In · Auto-Inject to Antigravity[/dim]",
+            f"[dim]⚡ F9: Global Mute/Pause · Say 'mute mic' to Pause · Spoken 'Enter'[/dim]",
             border_style="cyan"
         ))

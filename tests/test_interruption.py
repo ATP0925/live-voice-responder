@@ -30,6 +30,10 @@ class TestInterruption(unittest.TestCase):
         coord.finish_turn()
         self.assertEqual(coord.state, ConversationState.IDLE)
 
+        # Mute test
+        coord.set_state(ConversationState.MUTED)
+        self.assertEqual(coord.state, ConversationState.MUTED)
+
 if __name__ == "__main__":
     unittest.main()
 

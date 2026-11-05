@@ -49,6 +49,56 @@ class UniversalLiveVoiceEngine:
 
         self._running = False
         self._session = None
+        self.is_muted = False
+        self._hotkey_listener = None
+
+    def toggle_mute(self, source: str = "hotkey") -> bool:
+        """Toggles mic mute on/off with audio cue and visual state update."""
+        self.is_muted = not self.is_muted
+        def _play_feedback(muted: bool):
+            try:
+                import winsound
+                if muted:
+                    winsound.Beep(420, 150)
+                else:
+                    winsound.Beep(850, 150)
+            except Exception:
+                pass
+
+        threading.Thread(target=_play_feedback, args=(self.is_muted,), daemon=True).start()
+
+        if self.is_muted:
+            self.coordinator.set_state(ConversationState.MUTED)
+            if self.on_state_change:
+                self.on_state_change(ConversationState.MUTED)
+            if self.on_energy:
+                self.on_energy(0.0)
+            if self.on_transcript:
+                self.on_transcript("System", f"🔇 Microphone PAUSED via {source}. (Press F9 to Resume)")
+        else:
+            self.coordinator.set_state(ConversationState.LISTENING)
+            if self.on_state_change:
+                self.on_state_change(ConversationState.LISTENING)
+            if self.on_transcript:
+                self.on_transcript("System", f"🎙️ Microphone ACTIVE via {source}. Bolo Boss!")
+        return self.is_muted
+
+    def _setup_global_hotkey(self):
+        """Registers F9 and Pause/Break global hotkeys for hands-free mic toggle."""
+        try:
+            from pynput import keyboard
+            def on_press(key):
+                try:
+                    if key in (keyboard.Key.f9, keyboard.Key.pause):
+                        self.toggle_mute(source="F9 Hotkey")
+                except Exception:
+                    pass
+
+            self._hotkey_listener = keyboard.Listener(on_press=on_press)
+            self._hotkey_listener.daemon = True
+            self._hotkey_listener.start()
+        except Exception as e:
+            print(f"[Warning] Hotkey listener could not start: {e}")
 
     def _handle_state_change(self, state: ConversationState):
         if self.on_state_change:
@@ -62,6 +112,14 @@ class UniversalLiveVoiceEngine:
     async def _gemini_audio_send_loop(self, session):
         from google.genai import types
         while self._running:
+            if self.is_muted:
+                _ = self.audio_mgr.get_input_chunk(timeout=0.05)
+                self.coordinator.set_state(ConversationState.MUTED)
+                if self.on_energy:
+                    self.on_energy(0.0)
+                await asyncio.sleep(0.05)
+                continue
+
             chunk = self.audio_mgr.get_input_chunk(timeout=0.05)
             if chunk and len(chunk) > 0:
                 pcm_arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767.0
@@ -230,6 +288,7 @@ class UniversalLiveVoiceEngine:
         )
 
         self._running = True
+        self._setup_global_hotkey()
         self.audio_mgr.start()
         print(f"Connecting to {self.config.engine.live_model}...")
 
@@ -272,9 +331,11 @@ class UniversalLiveVoiceEngine:
         from .dsp import AdaptiveNoiseGate
 
         self._running = True
+        self._setup_global_hotkey()
         self.audio_mgr.start()
-        print("🎙️ [Mic Active - DSP Noise Filtered] Bolo Boss! Laptop fan aur room noise cancel ho raha hai.\n")
-        self.fallback_tts.speak(f"{self.config.persona.callsign}, noise filter active hai. Bolo.")
+        print("🎙️ [Mic Active - DSP Noise Filtered] Bolo Boss! Laptop fan aur room noise cancel ho raha hai.")
+        print("💡 [Pro Tip] Press 'F9' to Pause/Mute anytime, or say 'mute mic'!\n")
+        self.fallback_tts.speak(f"{self.config.persona.callsign}, noise filter active hai. F9 dabake mute kar sakte ho.")
 
         noise_gate = AdaptiveNoiseGate(
             sample_rate=self.config.audio.input_sample_rate,
@@ -287,6 +348,16 @@ class UniversalLiveVoiceEngine:
 
         try:
             while self._running:
+                # 0. User Mute / Pause Mode: complete mic silence, zero CPU/bandwidth usage
+                if self.is_muted:
+                    _ = self.audio_mgr.get_input_chunk(timeout=0.05)
+                    self.coordinator.set_state(ConversationState.MUTED)
+                    if self.on_energy:
+                        self.on_energy(0.0)
+                    audio_buffer.clear()
+                    await asyncio.sleep(0.05)
+                    continue
+
                 # Echo cancellation: If agent is speaking through speakers, mute mic completely!
                 if os.path.exists(lock_path) or self.audio_mgr.is_playing:
                     self.coordinator.set_state(ConversationState.SPEAKING)
@@ -317,6 +388,18 @@ class UniversalLiveVoiceEngine:
                         loop = asyncio.get_running_loop()
                         text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
                         if text and text.strip():
+                            raw_low = text.strip().lower()
+                            mute_triggers = [
+                                "mute mic", "pause mic", "stop listening", "pause listening",
+                                "mute please", "mic mute", "mic pause", "mute karo", "pause karo"
+                            ]
+                            if raw_low in ("mute", "pause") or any(t in raw_low for t in mute_triggers):
+                                if self.on_transcript:
+                                    self.on_transcript("Boss", f"{text.strip()} [bold red]🔇 [VOICE PAUSE TRIGGERED][/bold red]")
+                                self.toggle_mute(source="Voice Command")
+                                self.coordinator.finish_turn()
+                                continue
+
                             clean_tx, was_spoken_enter = parse_spoken_enter(text.strip())
                             tag = " [bold green]⚡ [VOICE ENTER][/bold green]" if was_spoken_enter else ""
                             # 1. Display on terminal in English letters!
@@ -334,6 +417,11 @@ class UniversalLiveVoiceEngine:
 
     def stop(self):
         self._running = False
+        if self._hotkey_listener:
+            try:
+                self._hotkey_listener.stop()
+            except Exception:
+                pass
         self.audio_mgr.stop()
         self.coordinator.finish_turn()
         print("[Live Voice Engine] Stopped cleanly.")

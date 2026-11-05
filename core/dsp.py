@@ -111,3 +111,4 @@ class AdaptiveNoiseGate:
             self.ambient_floor = 0.98 * self.ambient_floor + 0.02 * rms
 
         return self.is_speaking, just_finished, rms
+

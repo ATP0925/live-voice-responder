@@ -32,16 +32,19 @@ Users can seamlessly run it out-of-the-box, customize backend providers (`config
 ## ⚡ Core Capabilities
 
 1. **🎙️ Universal Duplex Streaming:** High-performance bidirectional streaming (16kHz PCM input / 24kHz output) allowing natural two-way conversation with AI agents.
-2. **🛑 Sub-50ms Instant Barge-In:** When you interrupt and speak while the AI is talking, speaker buffers flush immediately and the agent pivots without lag.
-3. **🔌 Cross-Agent Chat Injection:** Detects whichever coding assistant window is active and automatically pastes and sends spoken prompts (`Ctrl+V` + `Enter`).
-4. **🧩 Modular Multi-Provider Architecture:**
+2. **🔇 Instant Mute / Pause Toggle (Global F9 & Voice):** Press **`F9`** anytime (globally, even inside your code editor) or simply say *"mute mic"* / *"pause mic"* to pause microphone capture instantly with real-time visual and sound cues.
+3. **🌪️ DSP 4th-Order Butterworth Fan Noise Cancellation:** High-grade 300Hz–3400Hz voice bandpass filter + dual-threshold hysteresis noise gate completely eliminates laptop fan whine and background noise.
+4. **⚡ Spoken "Enter" Automation:** Say *"enter"* at the end of any command (e.g. *"run unit tests enter"*), and the engine automatically strips "enter" and triggers an instant physical `Enter` keystroke into the active chat.
+5. **🛑 Sub-50ms Instant Barge-In:** When you interrupt and speak while the AI is talking, speaker buffers flush immediately and the agent pivots without lag.
+6. **🔌 Cross-Agent Chat Injection:** Detects whichever coding assistant window is active and automatically pastes and sends spoken prompts (`Ctrl+V` + `Enter`).
+7. **🧩 Modular Multi-Provider Architecture:**
    * **`auto`**: Detects available environment keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) and selects the optimal engine.
    * **`gemini`**: Native Multimodal Live API (`gemini-3.1-flash-live-preview`).
    * **`openai`**: OpenAI Realtime API (`gpt-4o-realtime-preview`).
    * **`anthropic`**: Claude Code Live pipeline with streaming voice.
    * **`local`**: 100% offline Faster-Whisper + Edge-TTS/SAPI5.
-5. **👑 Customizable Callsign & Persona:** Calibrated by default for "Boss" with executive brevity and technical rigor in Hindi/Hinglish, yet easily customizable post-install in `config.json`.
-6. **🛡️ 3-Tier Offline Neural Fail-Safe:** Edge-TTS -> Google gTTS -> Windows Native SAPI5 ensures voice output never goes silent even with zero internet.
+8. **👑 Customizable Callsign & Persona:** Calibrated by default for "Boss" with executive brevity and technical rigor in Hindi/Hinglish, yet easily customizable post-install in `config.json`.
+9. **🛡️ 3-Tier Offline Neural Fail-Safe:** Edge-TTS -> Google gTTS -> Windows Native SAPI5 ensures voice output never goes silent even with zero internet.
 
 ---
 
