@@ -130,10 +130,15 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
                 time.sleep(0.08)
 
             # 2. Copy text to Windows Clipboard
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
-            win32clipboard.CloseClipboard()
+            try:
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
+            finally:
+                try:
+                    win32clipboard.CloseClipboard()
+                except Exception:
+                    pass
             time.sleep(0.04)
 
             # 3. Paste (Ctrl + V) with hardware scancodes

@@ -53,6 +53,7 @@ class UniversalLiveVoiceEngine:
         self._session = None
         self.is_muted = False
         self._hotkey_listener = None
+        self._pending_user_transcript = ""
 
     def toggle_mute(self, source: str = "hotkey") -> bool:
         """Toggles mic mute on/off with audio cue and visual state update."""
@@ -153,15 +154,15 @@ class UniversalLiveVoiceEngine:
                     self._handle_barge_in()
                     continue
 
-                # User transcript (English letters)
+                # User transcript (English letters) - buffer until turn_complete
                 input_tx = getattr(server_content, "input_transcription", None)
                 if input_tx and hasattr(input_tx, "text") and input_tx.text:
                     tx_text = input_tx.text.strip()
                     if tx_text:
+                        self._pending_user_transcript = tx_text
                         self.coordinator.start_user_turn()
                         if self.on_transcript:
                             self.on_transcript("Boss", tx_text)
-                        inject_agent_chat(tx_text, target_hint=self.config.target_agent)
 
                 # Agent transcript
                 output_tx = getattr(server_content, "output_transcription", None)
@@ -181,6 +182,10 @@ class UniversalLiveVoiceEngine:
                             self.audio_mgr.feed_output_audio(inline.data)
 
                 if getattr(server_content, "turn_complete", False):
+                    # Inject buffered user transcript on turn completion
+                    if self._pending_user_transcript:
+                        inject_agent_chat(self._pending_user_transcript, target_hint=self.config.target_agent)
+                        self._pending_user_transcript = ""
                     self.coordinator.finish_turn()
 
         except asyncio.CancelledError:

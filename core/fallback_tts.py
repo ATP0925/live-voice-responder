@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import asyncio
+import threading
 import tempfile
 import subprocess
 from pathlib import Path
@@ -53,11 +54,13 @@ class FallbackTTS:
                 f'$player = New-Object System.Windows.Media.MediaPlayer;'
                 f'$player.Open([System.Uri]"file:///{temp_path.replace(os.sep, "/")}");'
                 f'$player.Play();'
-                f'while($player.NaturalDuration.HasTimeSpan -eq $false){{Start-Sleep -Milliseconds 50}};'
-                f'Start-Sleep -Milliseconds ($player.NaturalDuration.TimeSpan.TotalMilliseconds + 200);'
+                f'$timeout = 0;'
+                f'while($player.NaturalDuration.HasTimeSpan -eq $false -and $timeout -lt 120){{Start-Sleep -Milliseconds 50; $timeout++}};'
+                f'if($player.NaturalDuration.HasTimeSpan){{Start-Sleep -Milliseconds ($player.NaturalDuration.TimeSpan.TotalMilliseconds + 200)}}'
+                f'else{{Start-Sleep -Milliseconds 3000}};'
                 f'$player.Close();'
             )
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
             try:
                 os.remove(temp_path)
             except Exception:
@@ -84,7 +87,7 @@ class FallbackTTS:
 
         # Try Tier 1 Primary
         try:
-            success = asyncio.run(self.speak_edge_tts(clean, self.primary_voice))
+            success = self._run_async_tts(clean, self.primary_voice)
             if success:
                 return
         except Exception:
@@ -92,7 +95,7 @@ class FallbackTTS:
 
         # Try Tier 1 Fallback Voice
         try:
-            success = asyncio.run(self.speak_edge_tts(clean, self.fallback_voice))
+            success = self._run_async_tts(clean, self.fallback_voice)
             if success:
                 return
         except Exception:
@@ -100,4 +103,19 @@ class FallbackTTS:
 
         # Try Tier 3 Offline SAPI5
         self.speak_sapi5(clean)
+
+    def _run_async_tts(self, text: str, voice: str) -> bool:
+        """Runs async TTS in a dedicated event loop thread to avoid nested asyncio.run() crashes."""
+        result = [False]
+        def _worker():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result[0] = loop.run_until_complete(self.speak_edge_tts(text, voice))
+            finally:
+                loop.close()
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=20)
+        return result[0]
 

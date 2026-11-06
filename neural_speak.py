@@ -10,6 +10,7 @@ import re
 import subprocess
 import asyncio
 import tempfile
+import json
 import uuid
 import time
 import winsound

@@ -118,6 +118,11 @@ class AdaptiveNoiseGate:
                 self.is_speaking = True
                 self.speech_start_time = now
             self.last_voice_time = now
+            # Safety: force-finish if speaking too long (prevents unbounded buffer)
+            if now - self.speech_start_time >= self.max_speech_duration:
+                self.is_speaking = False
+                if now - self.speech_start_time >= self.min_speech_duration:
+                    just_finished = True
         elif self.is_speaking:
             # Below release threshold -> silence counting
             if rms < release_thresh:
