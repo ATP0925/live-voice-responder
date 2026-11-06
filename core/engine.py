@@ -184,7 +184,12 @@ class UniversalLiveVoiceEngine:
                 if getattr(server_content, "turn_complete", False):
                     # Inject buffered user transcript on turn completion
                     if self._pending_user_transcript:
-                        inject_agent_chat(self._pending_user_transcript, target_hint=self.config.target_agent)
+                        clean_tx, was_spoken_enter = parse_spoken_enter(self._pending_user_transcript)
+                        if clean_tx:
+                            inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=was_spoken_enter)
+                        elif was_spoken_enter:
+                            # Just press Enter in the active agent (no text to paste)
+                            inject_agent_chat("", target_hint=self.config.target_agent, force_enter=True)
                         self._pending_user_transcript = ""
                     self.coordinator.finish_turn()
 
@@ -460,7 +465,11 @@ class UniversalLiveVoiceEngine:
                                 self.on_transcript("Boss", f"{clean_tx}{tag}")
 
                             # 2. Immediately inject into Antigravity Chat & hit Enter!
-                            inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=True)
+                            if clean_tx:
+                                inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=was_spoken_enter)
+                            elif was_spoken_enter:
+                                # Just press Enter in the active agent (no text to paste)
+                                inject_agent_chat("", target_hint=self.config.target_agent, force_enter=True)
 
                     self.coordinator.finish_turn()
 

@@ -17,6 +17,10 @@ class TestTools(unittest.TestCase):
         self.assertEqual(text2, "check status")
         self.assertFalse(enter2)
 
+        text3, enter3 = parse_spoken_enter("enter")
+        self.assertEqual(text3, "")
+        self.assertTrue(enter3)
+
     def test_execute_command(self):
         res = execute_system_command("Write-Output 'Live Voice Ready'")
         self.assertEqual(res.get("exit_code"), 0)

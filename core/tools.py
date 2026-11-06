@@ -89,7 +89,8 @@ def parse_spoken_enter(text: str) -> tuple[str, bool]:
     match = re.search(r'\b(enter|send|submit)\b[.,!?]*$', clean, re.IGNORECASE)
     if match:
         stripped = clean[:match.start()].strip(' ,.!?')
-        return stripped if stripped else clean, True
+        # If entire text was just the command word, signal enter with empty text
+        return stripped, True
     return clean, False
 
 def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool = True) -> Dict[str, Any]:
@@ -102,7 +103,7 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
         return {"status": "win32_unavailable", "message": message}
 
     clean_message, spoken_enter = parse_spoken_enter(message)
-    if not clean_message:
+    if not clean_message and not (force_enter or spoken_enter):
         return {"status": "empty_message"}
 
     target_hwnd = None
@@ -148,32 +149,46 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
                 try:
                     win32gui.SetForegroundWindow(target_hwnd)
                 except Exception:
-                    pass
+                    # Use AttachThreadInput technique as fallback
+                    try:
+                        import ctypes
+                        current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+                        target_thread = ctypes.windll.user32.GetWindowThreadProcessId(target_hwnd, None)
+                        ctypes.windll.user32.AttachThreadInput(current_thread, target_thread, True)
+                        win32gui.SetForegroundWindow(target_hwnd)
+                        ctypes.windll.user32.AttachThreadInput(current_thread, target_thread, False)
+                    except Exception:
+                        pass
                 time.sleep(0.08)
 
-            # 2. Copy text to Windows Clipboard
-            try:
-                win32clipboard.OpenClipboard()
-                win32clipboard.EmptyClipboard()
-                win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
-            finally:
+                # Verify focus was obtained
+                if win32gui.GetForegroundWindow() != target_hwnd:
+                    return {"status": "focus_failed", "agent": detected_agent}
+
+            if clean_message:
+                # 2. Copy text to Windows Clipboard
                 try:
-                    win32clipboard.CloseClipboard()
-                except Exception:
-                    pass
-            time.sleep(0.04)
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
+                finally:
+                    try:
+                        win32clipboard.CloseClipboard()
+                    except Exception:
+                        pass
+                time.sleep(0.04)
 
-            # 3. Paste (Ctrl + V) with hardware scancodes
-            ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
-            v_scan = win32api.MapVirtualKey(ord('V'), 0)
-            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
-            win32api.keybd_event(ord('V'), v_scan, 0, 0)
-            time.sleep(0.03)
-            win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
-            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
+                # 3. Paste (Ctrl + V) with hardware scancodes
+                ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+                v_scan = win32api.MapVirtualKey(ord('V'), 0)
+                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
+                win32api.keybd_event(ord('V'), v_scan, 0, 0)
+                time.sleep(0.03)
+                win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
+                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
 
-            # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
-            time.sleep(0.16)
+                # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
+                time.sleep(0.16)
 
             # 4. Hit ENTER with hardware scancode (simulates physical Enter key!)
             if force_enter or spoken_enter:
@@ -192,7 +207,7 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
                 "status": "success",
                 "agent": detected_agent,
                 "injected_text": clean_message,
-                "voice_enter": spoken_enter
+                "voice_enter": spoken_enter or force_enter
             }
         except Exception as e:
             return {"status": "failed", "error": str(e)}

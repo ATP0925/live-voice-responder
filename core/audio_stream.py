@@ -16,6 +16,9 @@ except ImportError:
     SOUNDDEVICE_AVAILABLE = False
 
 
+PTT_MAX_DURATION = 30.0  # seconds maximum recording timeout for PTT
+
+
 class AudioStreamManager:
     def __init__(
         self,
@@ -51,7 +54,8 @@ class AudioStreamManager:
         pcm_data = indata.copy()
         if pcm_data.ndim > 1 and pcm_data.shape[1] > 1:
             pcm_data = np.mean(pcm_data, axis=1)
-        raw_bytes = (pcm_data * 32767).astype(np.int16).tobytes()
+        clipped = np.clip(pcm_data, -1.0, 1.0)
+        raw_bytes = (clipped * 32767).astype(np.int16).tobytes()
         self.input_queue.put(raw_bytes)
 
         # Calculate RMS energy for VAD / Interruption

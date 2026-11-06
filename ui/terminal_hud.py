@@ -6,6 +6,7 @@ Features Gemini Live Style Dynamic Audio Wave Animation & Real-Time VU Meter.
 import sys
 import time
 import math
+import threading
 from typing import List, Tuple
 from rich.console import Console
 from rich.panel import Panel
@@ -30,6 +31,7 @@ class TerminalHUD:
     def __init__(self, callsign: str = "Boss"):
         self.callsign = callsign
         self.messages: List[Tuple[str, str, str]] = []
+        self._messages_lock = threading.Lock()
         self.state = "LISTENING"
         self.current_energy = 0.0
         self.peak_energy = 0.0
@@ -41,9 +43,10 @@ class TerminalHUD:
 
     def add_message(self, speaker: str, text: str):
         timestamp = time.strftime("%H:%M:%S")
-        self.messages.append((speaker, text, timestamp))
-        if len(self.messages) > 10:
-            self.messages.pop(0)
+        with self._messages_lock:
+            self.messages.append((speaker, text, timestamp))
+            if len(self.messages) > 10:
+                self.messages.pop(0)
 
         # Print message into console history
         msg_str = ""
@@ -61,10 +64,21 @@ class TerminalHUD:
         else:
             console.print(msg_str)
 
+    def render(self):
+        with self._messages_lock:
+            msgs = list(self.messages)  # snapshot
+        return self.generate_status_panel()
+
+    def get_messages(self) -> List[Tuple[str, str, str]]:
+        with self._messages_lock:
+            return list(self.messages)
+
     def update_state(self, state: str):
         self.state = state
 
     def update_energy(self, energy: float):
+        if energy is None or math.isnan(energy) or math.isinf(energy):
+            energy = 0.0
         self.current_energy = energy
         if energy > self.peak_energy:
             self.peak_energy = energy
@@ -74,7 +88,10 @@ class TerminalHUD:
     def generate_wave_bars(self, num_bars: int = 24) -> Text:
         """Generates dynamic audio equalizer wave based on mic energy & harmonics."""
         t = time.time() * 6.0
-        e = min(1.0, self.current_energy * 18.0)  # Sensitivity boost
+        energy = self.current_energy
+        if math.isnan(energy) or math.isinf(energy):
+            energy = 0.0
+        e = min(1.0, energy * 18.0)  # Sensitivity boost
         text = Text()
 
         for i in range(num_bars):
@@ -106,6 +123,11 @@ class TerminalHUD:
         """Renders Gemini Live style glowing status & wave animation widget."""
         self.frame_idx = (self.frame_idx + 1) % len(ORB_FRAMES)
         orb = ORB_FRAMES[self.frame_idx]
+
+        energy = self.current_energy
+        if math.isnan(energy) or math.isinf(energy):
+            energy = 0.0
+            self.current_energy = 0.0
 
         # State badge & color
         if self.state == "MUTED":
