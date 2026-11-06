@@ -27,6 +27,17 @@ class TestTools(unittest.TestCase):
         self.assertIn("content", res)
         self.assertIn("gemini-3.1-flash-live-preview", res["content"])
 
+    def test_read_workspace_file_confinement_and_sensitive_patterns(self):
+        # Sensitive pattern block
+        res = read_workspace_file("some/path/.env")
+        self.assertIn("error", res)
+        self.assertIn("Access denied", res["error"])
+
+        # Outside workspace root
+        res2 = read_workspace_file(str(ROOT / "config.json"), workspace_root=str(ROOT / "core"))
+        self.assertIn("error", res2)
+        self.assertIn("Access denied", res2["error"])
+
 if __name__ == "__main__":
     unittest.main()
 

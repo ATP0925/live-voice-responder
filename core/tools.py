@@ -20,6 +20,7 @@ try:
     import win32api
     import win32con
     import win32clipboard
+    import win32process
     WIN32_AVAILABLE = True
 except ImportError:
     WIN32_AVAILABLE = False
@@ -52,9 +53,22 @@ def execute_system_command(command: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
-def read_workspace_file(file_path: str) -> Dict[str, Any]:
+def read_workspace_file(file_path: str, workspace_root: str = None) -> Dict[str, Any]:
     """Reads content of a file within the workspace."""
     p = Path(file_path).resolve()
+
+    # Confine to workspace root if specified
+    if workspace_root:
+        root = Path(workspace_root).resolve()
+        if not str(p).lower().startswith(str(root).lower()):
+            return {"error": f"Access denied: path outside workspace root"}
+
+    # Block sensitive system files
+    sensitive_patterns = ['.ssh', '.gnupg', '.env', 'id_rsa', '.git/config']
+    for pat in sensitive_patterns:
+        if pat in str(p).lower():
+            return {"error": f"Access denied: sensitive file pattern detected"}
+
     if not p.exists():
         return {"error": f"File does not exist: {file_path}"}
     try:
@@ -93,10 +107,18 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
 
     target_hwnd = None
     detected_agent = "Unknown"
+    current_pid = os.getpid()
 
     def enum_cb(hwnd, _):
         nonlocal target_hwnd, detected_agent
         if win32gui.IsWindowVisible(hwnd):
+            # Skip windows belonging to our own process
+            try:
+                _, window_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if window_pid == current_pid:
+                    return True
+            except Exception:
+                pass
             title = win32gui.GetWindowText(hwnd)
             for agent_name in SUPPORTED_AGENT_TITLES:
                 if target_hint != "auto" and target_hint.lower() in agent_name.lower():

@@ -49,6 +49,8 @@ class AudioStreamManager:
     def _input_callback(self, indata, frames, time_info, status):
         """Processes microphone input frames."""
         pcm_data = indata.copy()
+        if pcm_data.ndim > 1 and pcm_data.shape[1] > 1:
+            pcm_data = np.mean(pcm_data, axis=1)
         raw_bytes = (pcm_data * 32767).astype(np.int16).tobytes()
         self.input_queue.put(raw_bytes)
 
@@ -80,13 +82,24 @@ class AudioStreamManager:
             to_play = out_bytes[:bytes_needed]
             remainder = out_bytes[bytes_needed:]
             if remainder:
-                self.output_queue.queue.appendleft(bytes(remainder))
+                try:
+                    self.output_queue.put_nowait(bytes(remainder))
+                except queue.Full:
+                    pass
             
+            # Ensure even byte count for int16 conversion
+            if len(to_play) % 2 != 0:
+                to_play = to_play[:-1]
             audio_np = np.frombuffer(to_play, dtype=np.int16).astype(np.float32) / 32767.0
-            outdata[:, 0] = audio_np
+            outdata[:len(audio_np), 0] = audio_np
+            if len(audio_np) < frames:
+                outdata[len(audio_np):, 0] = 0.0
             self._is_playing = True
         elif len(out_bytes) > 0:
             to_play = bytes(out_bytes)
+            # Ensure even byte count for int16 conversion
+            if len(to_play) % 2 != 0:
+                to_play = to_play[:-1]
             audio_np = np.frombuffer(to_play, dtype=np.int16).astype(np.float32) / 32767.0
             outdata[:len(audio_np), 0] = audio_np
             outdata[len(audio_np):, 0] = 0.0
@@ -107,14 +120,25 @@ class AudioStreamManager:
 
             self._running = True
             try:
-                self.input_stream = sd.InputStream(
-                    samplerate=self.input_rate,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=self.chunk_size,
-                    device=self.input_device,
-                    callback=self._input_callback
-                )
+                try:
+                    self.input_stream = sd.InputStream(
+                        samplerate=self.input_rate,
+                        channels=1,
+                        dtype="float32",
+                        blocksize=self.chunk_size,
+                        device=self.input_device,
+                        callback=self._input_callback
+                    )
+                except (sd.PortAudioError, Exception):
+                    # Fallback: some Bluetooth devices need stereo
+                    self.input_stream = sd.InputStream(
+                        samplerate=self.input_rate,
+                        channels=2,
+                        dtype="float32",
+                        blocksize=self.chunk_size,
+                        device=self.input_device,
+                        callback=self._input_callback
+                    )
                 self.output_stream = sd.OutputStream(
                     samplerate=self.output_rate,
                     channels=1,

@@ -433,11 +433,20 @@ class UniversalLiveVoiceEngine:
                         text = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured)
                         if text and text.strip():
                             raw_low = text.strip().lower()
+                            unmute_triggers = ["unmute mic", "unmute", "resume mic", "start listening", "mic on"]
+                            if raw_low in unmute_triggers or any(t == raw_low for t in unmute_triggers):
+                                if self.is_muted:
+                                    self.toggle_mute(source="Voice Command")
+                                    if self.on_transcript:
+                                        self.on_transcript("Boss", f"{text.strip()} [bold green]🎙️ [MIC RESUMED][/bold green]")
+                                    self.coordinator.finish_turn()
+                                    continue
+
                             mute_triggers = [
                                 "mute mic", "pause mic", "stop listening", "pause listening",
                                 "mute please", "mic mute", "mic pause", "mute karo", "pause karo"
                             ]
-                            if raw_low in ("mute", "pause") or any(t in raw_low for t in mute_triggers):
+                            if raw_low in ("mute", "pause") or any(t == raw_low for t in mute_triggers):
                                 if self.on_transcript:
                                     self.on_transcript("Boss", f"{text.strip()} [bold red]🔇 [VOICE PAUSE TRIGGERED][/bold red]")
                                 self.toggle_mute(source="Voice Command")

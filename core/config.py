@@ -6,6 +6,7 @@ Enterprise Opus 5.5 Architecture
 
 import os
 import json
+import dataclasses
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
@@ -102,12 +103,18 @@ class LiveVoiceConfig:
             anthropic_model=anthropic_cfg.get("model", "claude-3-7-sonnet")
         )
 
+        def _filter_known(target_cls, raw_data):
+            if not isinstance(raw_data, dict):
+                return {}
+            known_fields = {f.name for f in dataclasses.fields(target_cls)}
+            return {k: v for k, v in raw_data.items() if k in known_fields}
+
         return cls(
-            persona=PersonaConfig(**persona_data) if persona_data else PersonaConfig(),
+            persona=PersonaConfig(**_filter_known(PersonaConfig, persona_data)),
             engine=engine_obj,
-            audio=AudioConfig(**audio_data) if audio_data else AudioConfig(),
-            offline_tts=OfflineTTSConfig(**tts_data) if tts_data else OfflineTTSConfig(),
-            target_agent=agent_data.get("target_agent", "auto")
+            audio=AudioConfig(**_filter_known(AudioConfig, audio_data)),
+            offline_tts=OfflineTTSConfig(**_filter_known(OfflineTTSConfig, tts_data)),
+            target_agent=agent_data.get("target_agent", "auto") if isinstance(agent_data, dict) else "auto"
         )
 
     def resolve_active_provider(self) -> str:

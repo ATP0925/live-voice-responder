@@ -21,6 +21,16 @@ class TestAudioDevicesAndLock(unittest.TestCase):
         self.assertEqual(mgr.input_device, 1)
         self.assertEqual(mgr.output_device, 3)
 
+    def test_output_callback_odd_bytes_no_crash(self):
+        import numpy as np
+        mgr = AudioStreamManager()
+        # Feed odd number of bytes into queue
+        mgr._running = True
+        mgr.feed_output_audio(b"\x01\x02\x03\x04\x05")
+        outdata = np.zeros((10, 1), dtype=np.float32)
+        mgr._output_callback(outdata, frames=10, time_info=None, status=None)
+        self.assertTrue(mgr.is_playing)
+
     def test_speaking_lock_payload(self):
         lock_file = os.path.join(tempfile.gettempdir(), "test_speaking_lock.json")
         try:

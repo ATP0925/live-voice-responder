@@ -145,6 +145,24 @@ def _play_audio_file(mp3_path: str, wav_path: str) -> bool:
         except Exception:
             pass
 
+    # Route 4: Windows Media Player COM (plays MP3 natively without ffmpeg)
+    try:
+        ps_cmd = (
+            f'$player = New-Object -ComObject WMPlayer.OCX;'
+            f'$player.URL = "{mp3_path.replace(chr(92), "/")}";'
+            f'$player.controls.play();'
+            f'Start-Sleep -Milliseconds 500;'
+            f'while($player.playState -eq 3){{Start-Sleep -Milliseconds 100}};'
+            f'$player.close();'
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            check=True, capture_output=True, timeout=30
+        )
+        return True
+    except Exception:
+        pass
+
     return False
 
 def _speak_offline_sapi5(text: str):

@@ -24,8 +24,10 @@ class SpeechNoiseFilter:
         if SCIPY_AVAILABLE:
             # 4th order Butterworth bandpass filter
             self.sos = butter(4, [300, 3400], btype='bandpass', fs=sample_rate, output='sos')
+            self.zi = None
         else:
             self.sos = None
+            self.zi = None
             cutoff = 300.0
             RC = 1.0 / (2.0 * np.pi * cutoff)
             dt = 1.0 / sample_rate
@@ -36,7 +38,12 @@ class SpeechNoiseFilter:
     def filter_chunk(self, pcm_float: np.ndarray) -> np.ndarray:
         if self.sos is not None and len(pcm_float) > 16:
             try:
-                return sosfilt(self.sos, pcm_float)
+                filtered, self.zi = sosfilt(
+                    self.sos, 
+                    pcm_float, 
+                    zi=self.zi if self.zi is not None else np.zeros((self.sos.shape[0], 2))
+                )
+                return filtered
             except Exception:
                 pass
         elif len(pcm_float) > 1:
@@ -89,6 +96,8 @@ class AdaptiveNoiseGate:
         if not raw_chunk:
             return self.is_speaking, False, 0.0
 
+        if len(raw_chunk) % 2 != 0:
+            raw_chunk = raw_chunk[:-1]
         pcm_raw = np.frombuffer(raw_chunk, dtype=np.int16).astype(np.float32) / 32767.0
         # 1. Strip fan hum and room rumble
         pcm_filtered = self.filter.filter_chunk(pcm_raw)

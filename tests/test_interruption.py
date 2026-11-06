@@ -34,6 +34,18 @@ class TestInterruption(unittest.TestCase):
         coord.set_state(ConversationState.MUTED)
         self.assertEqual(coord.state, ConversationState.MUTED)
 
+    def test_unmute_does_not_trigger_mute(self):
+        unmute_triggers = ["unmute mic", "unmute", "resume mic", "start listening", "mic on"]
+        mute_triggers = [
+            "mute mic", "pause mic", "stop listening", "pause listening",
+            "mute please", "mic mute", "mic pause", "mute karo", "pause karo"
+        ]
+
+        raw_low = "unmute mic"
+        self.assertTrue(raw_low in unmute_triggers or any(t == raw_low for t in unmute_triggers))
+        is_mute = raw_low in ("mute", "pause") or any(t == raw_low for t in mute_triggers)
+        self.assertFalse(is_mute)
+
 if __name__ == "__main__":
     unittest.main()
 
