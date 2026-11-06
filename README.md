@@ -8,7 +8,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platforms-Claude%20%7C%20Cursor%20%7C%20Codex%20%7C%20Antigravity-8b5cf6?style=flat-square" alt="Platforms">
   <img src="https://img.shields.io/badge/architecture-Universal%20Duplex-38bdf8?style=flat-square" alt="Duplex">
-  <img src="https://img.shields.io/badge/tests-11%20passing-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-24%20passing-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/python-3.11+-informational?style=flat-square" alt="Python">
 </p>
