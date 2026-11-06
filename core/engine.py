@@ -186,7 +186,7 @@ class UniversalLiveVoiceEngine:
                     if self._pending_user_transcript:
                         clean_tx, was_spoken_enter = parse_spoken_enter(self._pending_user_transcript)
                         if clean_tx:
-                            inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=was_spoken_enter)
+                            inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=True)
                         elif was_spoken_enter:
                             # Just press Enter in the active agent (no text to paste)
                             inject_agent_chat("", target_hint=self.config.target_agent, force_enter=True)
@@ -466,7 +466,7 @@ class UniversalLiveVoiceEngine:
 
                             # 2. Immediately inject into Antigravity Chat & hit Enter!
                             if clean_tx:
-                                inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=was_spoken_enter)
+                                inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=True)
                             elif was_spoken_enter:
                                 # Just press Enter in the active agent (no text to paste)
                                 inject_agent_chat("", target_hint=self.config.target_agent, force_enter=True)

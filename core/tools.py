@@ -30,10 +30,7 @@ SUPPORTED_AGENT_TITLES: List[str] = [
     "Cursor",
     "Visual Studio Code",
     "Claude",
-    "Windsurf",
-    "Command Prompt",
-    "Windows PowerShell",
-    "Terminal"
+    "Windsurf"
 ]
 
 def execute_system_command(command: str) -> Dict[str, Any]:
@@ -110,8 +107,9 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
     detected_agent = "Unknown"
     current_pid = os.getpid()
 
+    candidates = []
+
     def enum_cb(hwnd, _):
-        nonlocal target_hwnd, detected_agent
         if win32gui.IsWindowVisible(hwnd):
             # Skip windows belonging to our own process
             try:
@@ -121,16 +119,30 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
             except Exception:
                 pass
             title = win32gui.GetWindowText(hwnd)
-            for agent_name in SUPPORTED_AGENT_TITLES:
-                if target_hint != "auto" and target_hint.lower() in agent_name.lower():
-                    if agent_name.lower() in title.lower():
-                        target_hwnd = hwnd
-                        detected_agent = agent_name
-                        return False
-                elif agent_name.lower() in title.lower():
-                    target_hwnd = hwnd
-                    detected_agent = agent_name
+            if not title:
+                return True
+
+            # Skip voice responder console windows
+            title_lower = title.lower()
+            if "live voice responder" in title_lower or "dual-way audio" in title_lower:
+                return True
+
+            if target_hint != "auto":
+                if target_hint.lower() in title_lower:
+                    candidates.append((0, hwnd, target_hint))
                     return False
+            else:
+                # Prioritize Antigravity IDE (Priority 0)
+                if "antigravity" in title_lower:
+                    candidates.append((0, hwnd, "Antigravity"))
+                elif "cursor" in title_lower:
+                    candidates.append((1, hwnd, "Cursor"))
+                elif "visual studio code" in title_lower or "vscode" in title_lower:
+                    candidates.append((2, hwnd, "Visual Studio Code"))
+                elif "windsurf" in title_lower:
+                    candidates.append((3, hwnd, "Windsurf"))
+                elif "claude" in title_lower:
+                    candidates.append((4, hwnd, "Claude"))
         return True
 
     try:
@@ -138,32 +150,40 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
     except Exception:
         pass
 
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        _, target_hwnd, detected_agent = candidates[0]
+
     if target_hwnd:
         try:
             # 1. Safely focus target window without altering size or pressing ALT
             curr_fg = win32gui.GetForegroundWindow()
             if curr_fg != target_hwnd:
-                # If minimized, restore it; otherwise DO NOT touch window dimensions!
                 if win32gui.IsIconic(target_hwnd):
                     win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
-                try:
-                    win32gui.SetForegroundWindow(target_hwnd)
-                except Exception:
-                    # Use AttachThreadInput technique as fallback
-                    try:
-                        import ctypes
-                        current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
-                        target_thread = ctypes.windll.user32.GetWindowThreadProcessId(target_hwnd, None)
-                        ctypes.windll.user32.AttachThreadInput(current_thread, target_thread, True)
-                        win32gui.SetForegroundWindow(target_hwnd)
-                        ctypes.windll.user32.AttachThreadInput(current_thread, target_thread, False)
-                    except Exception:
-                        pass
-                time.sleep(0.08)
+                else:
+                    win32gui.ShowWindow(target_hwnd, win32con.SW_SHOW)
 
-                # Verify focus was obtained
-                if win32gui.GetForegroundWindow() != target_hwnd:
-                    return {"status": "focus_failed", "agent": detected_agent}
+                try:
+                    import ctypes
+                    user32 = ctypes.windll.user32
+                    user32.AllowSetForegroundWindow(-1)
+                    user32.BringWindowToTop(target_hwnd)
+                    user32.SetForegroundWindow(target_hwnd)
+                except Exception:
+                    pass
+
+                try:
+                    if win32gui.GetForegroundWindow() != target_hwnd:
+                        import ctypes
+                        cur_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+                        tgt_tid = ctypes.windll.user32.GetWindowThreadProcessId(target_hwnd, None)
+                        ctypes.windll.user32.AttachThreadInput(cur_tid, tgt_tid, True)
+                        win32gui.SetForegroundWindow(target_hwnd)
+                        ctypes.windll.user32.AttachThreadInput(cur_tid, tgt_tid, False)
+                except Exception:
+                    pass
+                time.sleep(0.08)
 
             if clean_message:
                 # 2. Copy text to Windows Clipboard

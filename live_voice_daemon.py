@@ -81,7 +81,7 @@ class LiveVoiceDaemon:
                 clean_tx, was_spoken_enter = parse_spoken_enter(text)
                 print(f"[Daemon Transcript] Boss: {clean_tx}")
                 if clean_tx:
-                    inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=was_spoken_enter)
+                    inject_agent_chat(clean_tx, target_hint=self.config.target_agent, force_enter=True)
                 elif was_spoken_enter:
                     inject_agent_chat("", target_hint=self.config.target_agent, force_enter=True)
         except Exception as e:
