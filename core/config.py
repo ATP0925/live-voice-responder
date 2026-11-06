@@ -46,6 +46,8 @@ class AudioConfig:
     interruption_enabled: bool = True
     vad_threshold_energy: float = 0.015
     silence_duration_seconds: float = 0.75
+    input_device_index: Optional[int] = None
+    output_device_index: Optional[int] = None
 
 @dataclass
 class OfflineTTSConfig:

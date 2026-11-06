@@ -170,10 +170,11 @@ LOCK_FILE = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock"
 def _set_speaking_lock(active: bool):
     try:
         if active:
-            with open(LOCK_FILE, "w") as f:
-                f.write(str(time.time()))
+            payload = json.dumps({"pid": os.getpid(), "timestamp": time.time()})
+            with open(LOCK_FILE, "w", encoding="utf-8") as f:
+                f.write(payload)
         else:
-            time.sleep(0.35)  # Grace period for room acoustic reverb
+            time.sleep(0.65)  # Generous grace period for room acoustic reverb dampening
             if os.path.exists(LOCK_FILE):
                 os.remove(LOCK_FILE)
     except Exception:

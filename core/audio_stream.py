@@ -23,12 +23,16 @@ class AudioStreamManager:
         output_rate: int = 24000,
         chunk_size: int = 1024,
         vad_energy_threshold: float = 0.015,
+        input_device: Optional[int] = None,
+        output_device: Optional[int] = None,
         on_interruption: Optional[Callable[[], None]] = None
     ):
         self.input_rate = input_rate
         self.output_rate = output_rate
         self.chunk_size = chunk_size
         self.vad_energy_threshold = vad_energy_threshold
+        self.input_device = input_device
+        self.output_device = output_device
         self.on_interruption = on_interruption
 
         self.input_queue: queue.Queue = queue.Queue()
@@ -108,6 +112,7 @@ class AudioStreamManager:
                     channels=1,
                     dtype="float32",
                     blocksize=self.chunk_size,
+                    device=self.input_device,
                     callback=self._input_callback
                 )
                 self.output_stream = sd.OutputStream(
@@ -115,6 +120,7 @@ class AudioStreamManager:
                     channels=1,
                     dtype="float32",
                     blocksize=self.chunk_size,
+                    device=self.output_device,
                     callback=self._output_callback
                 )
                 self.input_stream.start()
@@ -172,3 +178,14 @@ class AudioStreamManager:
     @property
     def is_playing(self) -> bool:
         return self._is_playing
+
+    @staticmethod
+    def list_audio_devices():
+        """Lists all physical/virtual audio devices available in the OS."""
+        if not SOUNDDEVICE_AVAILABLE:
+            return []
+        try:
+            return sd.query_devices()
+        except Exception as e:
+            print(f"[Audio Devices Warning]: {e}")
+            return []

@@ -16,6 +16,10 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.audio.input_sample_rate, 16000)
         self.assertEqual(cfg.audio.output_sample_rate, 24000)
 
+    def test_audio_device_indices(self):
+        audio_cfg = AudioConfig(input_device_index=1, output_device_index=3)
+        self.assertEqual(audio_cfg.input_device_index, 1)
+        self.assertEqual(audio_cfg.output_device_index, 3)
+
 if __name__ == "__main__":
     unittest.main()
-

@@ -40,6 +40,8 @@ class UniversalLiveVoiceEngine:
             output_rate=self.config.audio.output_sample_rate,
             chunk_size=self.config.audio.chunk_size,
             vad_energy_threshold=self.config.audio.vad_threshold_energy,
+            input_device=getattr(self.config.audio, "input_device_index", None),
+            output_device=getattr(self.config.audio, "output_device_index", None),
             on_interruption=self._handle_barge_in
         )
         self.fallback_tts = FallbackTTS(
@@ -363,14 +365,36 @@ class UniversalLiveVoiceEngine:
                     await asyncio.sleep(0.05)
                     continue
 
-                # Echo cancellation: check speaking lock with 5-second auto-expiry
+                # Echo cancellation: check speaking lock with active PID validation & acoustic reverb window
                 is_speaking_locked = False
                 if os.path.exists(lock_path):
                     try:
-                        if time.time() - os.path.getmtime(lock_path) > 5.0:
-                            os.remove(lock_path)
-                        else:
+                        with open(lock_path, "r", encoding="utf-8") as lf:
+                            content = lf.read().strip()
+                        lock_data = json.loads(content) if content.startswith("{") else {"timestamp": float(content or 0)}
+                        pid = lock_data.get("pid")
+                        ts = lock_data.get("timestamp", 0)
+
+                        pid_alive = False
+                        if pid:
+                            try:
+                                import ctypes
+                                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                                h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                                if h:
+                                    ctypes.windll.kernel32.CloseHandle(h)
+                                    pid_alive = True
+                            except Exception:
+                                pass
+
+                        lock_age = time.time() - ts
+                        if (pid_alive and lock_age < 60.0) or (not pid and lock_age < 20.0):
                             is_speaking_locked = True
+                        else:
+                            try:
+                                os.remove(lock_path)
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 
