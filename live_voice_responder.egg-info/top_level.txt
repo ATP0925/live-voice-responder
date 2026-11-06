@@ -1,0 +1,7 @@
+core
+live_voice_cli
+live_voice_daemon
+neural_speak
+ui
+voice_auto_chat
+voice_bridge

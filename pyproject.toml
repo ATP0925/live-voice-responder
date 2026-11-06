@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "live-voice-responder"
+version = "2.1.0"
+authors = [
+  { name="ATP0925" },
+]
+description = "Universal Full-Duplex Multimodal Live Voice Coordination Engine for Modern AI Coding Assistants."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "edge-tts>=6.1.0",
+    "gTTS>=2.5.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "sounddevice>=0.4.6",
+    "SpeechRecognition>=3.10.0",
+    "flask>=3.0.0",
+    "pynput>=1.7.6",
+    "pywin32>=306",
+    "rich>=13.0.0",
+    "google-genai>=1.0.0",
+]
+
+[project.scripts]
+livevoice = "live_voice_cli:cli"
+livevoice-speak = "neural_speak:cli"
+
+[tool.setuptools]
+py-modules = ["live_voice_cli", "live_voice_daemon", "neural_speak", "voice_bridge", "voice_auto_chat"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "ui*"]

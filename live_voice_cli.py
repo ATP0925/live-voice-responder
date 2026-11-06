@@ -138,8 +138,11 @@ async def main():
         finally:
             render_task.cancel()
 
-if __name__ == "__main__":
+def cli():
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nExiting Live Voice Responder. Goodbye Boss!")
+
+if __name__ == "__main__":
+    cli()

@@ -242,9 +242,12 @@ def speak_neural(raw_text: str):
                 except Exception:
                     pass
 
-if __name__ == "__main__":
+def cli():
     if len(sys.argv) > 1:
         input_text = " ".join(sys.argv[1:])
     else:
         input_text = "Boss, live voice responder poori tarah upgrade aur verified ho chuka hai."
     speak_neural(input_text)
+
+if __name__ == "__main__":
+    cli()

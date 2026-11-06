@@ -1,0 +1,3 @@
+[console_scripts]
+livevoice = live_voice_cli:cli
+livevoice-speak = neural_speak:cli
