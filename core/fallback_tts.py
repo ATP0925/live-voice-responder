@@ -134,9 +134,13 @@ class FallbackTTS:
                 f'$player.Open([System.Uri]"file:///{temp_path.replace(os.sep, "/")}");'
                 f'$player.Play();'
                 f'$timeout = 0;'
-                f'while($player.NaturalDuration.HasTimeSpan -eq $false -and $timeout -lt 120){{Start-Sleep -Milliseconds 50; $timeout++}};'
-                f'if($player.NaturalDuration.HasTimeSpan){{Start-Sleep -Milliseconds ($player.NaturalDuration.TimeSpan.TotalMilliseconds + 200)}}'
-                f'else{{Start-Sleep -Milliseconds 3000}};'
+                f'while($player.NaturalDuration.HasTimeSpan -eq $false -and $timeout -lt 60){{Start-Sleep -Milliseconds 50; $timeout++}};'
+                f'if($player.NaturalDuration.HasTimeSpan){{'
+                f'  $total = $player.NaturalDuration.TimeSpan.TotalMilliseconds;'
+                f'  while($player.Position.TotalMilliseconds -lt $total){{Start-Sleep -Milliseconds 60}};'
+                f'}} else {{'
+                f'  Start-Sleep -Milliseconds 3000;'
+                f'}};'
                 f'$player.Close();'
             )
             success = self._run_playable_process(["powershell", "-NoProfile", "-Command", ps_cmd])

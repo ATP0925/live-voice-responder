@@ -51,6 +51,13 @@ class TestTools(unittest.TestCase):
         empty_res = inject_agent_chat("", force_enter=False)
         self.assertEqual(empty_res.get("status"), "empty_message")
 
+    def test_inject_agent_chat_supports_auto_focus_chat(self):
+        import inspect
+        from core.tools import inject_agent_chat
+        sig = inspect.signature(inject_agent_chat)
+        self.assertIn("auto_focus_chat", sig.parameters)
+        self.assertTrue(sig.parameters["auto_focus_chat"].default)
+
 if __name__ == "__main__":
     unittest.main()
 

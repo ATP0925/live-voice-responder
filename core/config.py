@@ -114,7 +114,7 @@ class LiveVoiceConfig:
             engine=engine_obj,
             audio=AudioConfig(**_filter_known(AudioConfig, audio_data)),
             offline_tts=OfflineTTSConfig(**_filter_known(OfflineTTSConfig, tts_data)),
-            target_agent=agent_data.get("target_agent", "auto") if isinstance(agent_data, dict) else "auto"
+            target_agent=data.get("target_agent") or (agent_data.get("target_agent", "auto") if isinstance(agent_data, dict) else "auto")
         )
 
     def resolve_active_provider(self) -> str:

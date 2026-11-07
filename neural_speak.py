@@ -101,37 +101,18 @@ def _synthesize_gtts(text: str, target_file: str, lang: str = "hi"):
     tts = gTTS(text=text, lang=lang, slow=False)
     tts.save(target_file)
 
-def _play_audio_file(mp3_path: str, wav_path: str) -> bool:
-    """
-    Tries multiple native audio playback routes on Windows:
-    1. ffmpeg conversion -> winsound (Native WinMM)
-    2. ffplay (quiet, auto-exit)
-    3. PowerShell System.Media.SoundPlayer
-    """
-    # Route 1: Convert to WAV and play via Windows native winmm
-    try:
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-i", mp3_path,
-            "-ar", "24000",
-            "-ac", "1",
-            "-loglevel", "quiet",
-            wav_path
-        ], check=True, capture_output=True)
-        if os.path.exists(wav_path):
-            winsound.PlaySound(wav_path, winsound.SND_FILENAME)
-            return True
-    except Exception:
-        pass
-
 ABORT_FILE = os.path.join(tempfile.gettempdir(), "live_voice_barge_in.signal")
 
-def _run_monitored_playback(cmd: list) -> bool:
+def _run_monitored_playback(cmd: list, input_data: Optional[str] = None) -> bool:
     """Executes audio playback while polling for instant user barge-in abort signal."""
     if os.path.exists(ABORT_FILE):
         return False
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdin_opt = subprocess.PIPE if input_data is not None else subprocess.DEVNULL
+        proc = subprocess.Popen(cmd, stdin=stdin_opt, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True if input_data is not None else False)
+        if input_data is not None:
+            proc.stdin.write(input_data)
+            proc.stdin.close()
         while proc.poll() is None:
             if os.path.exists(ABORT_FILE):
                 proc.terminate()
@@ -150,42 +131,50 @@ def _play_audio_file(mp3_path: str, wav_path: str) -> bool:
     if os.path.exists(ABORT_FILE):
         return False
 
-    # Route 1: playsound (if installed)
-    try:
-        from playsound import playsound
-        playsound(mp3_path)
-        return True
-    except Exception:
-        pass
-
-    # Route 2: ffplay direct MP3 playback
+    # Route 1: ffplay direct MP3 playback (fastest, zero transcoding latency)
     try:
         if _run_monitored_playback(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", mp3_path]):
             return True
     except Exception:
         pass
 
-    # Route 3: PowerShell SoundPlayer on WAV
-    if os.path.exists(wav_path):
-        try:
-            cmd = ["powershell", "-NoProfile", "-Command", f"(New-Object Media.SoundPlayer '{wav_path}').PlaySync()"]
-            if _run_monitored_playback(cmd):
-                return True
-        except Exception:
-            pass
-
-    # Route 4: Windows Media Player COM (plays MP3 natively without ffmpeg)
+    # Route 2: Windows Media Player COM (plays MP3 natively on all Windows systems)
     try:
         ps_cmd = (
             f'$player = New-Object -ComObject WMPlayer.OCX;'
             f'$player.URL = "{mp3_path.replace(chr(92), "/")}";'
             f'$player.controls.play();'
             f'Start-Sleep -Milliseconds 400;'
-            f'while($player.playState -eq 3){{Start-Sleep -Milliseconds 100}};'
+            f'while($player.playState -eq 3){{Start-Sleep -Milliseconds 80}};'
             f'$player.close();'
         )
         if _run_monitored_playback(["powershell", "-NoProfile", "-Command", ps_cmd]):
             return True
+    except Exception:
+        pass
+
+    # Route 3: Convert to WAV and play via PowerShell SoundPlayer
+    try:
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", mp3_path,
+            "-ar", "24000",
+            "-ac", "1",
+            "-loglevel", "quiet",
+            wav_path
+        ], check=True, capture_output=True, timeout=5)
+        if os.path.exists(wav_path):
+            cmd = ["powershell", "-NoProfile", "-Command", f"(New-Object Media.SoundPlayer '{wav_path}').PlaySync()"]
+            if _run_monitored_playback(cmd):
+                return True
+    except Exception:
+        pass
+
+    # Route 4: playsound (if installed)
+    try:
+        from playsound import playsound
+        playsound(mp3_path)
+        return True
     except Exception:
         pass
 
@@ -195,19 +184,23 @@ def _speak_offline_sapi5(text: str):
     """
     Zero-network offline fallback using Windows SAPI5 Speech Synthesizer.
     Guarantees the agent is NEVER muted even during complete network severance.
+    Uses stdin to avoid any PowerShell string escaping or injection vulnerabilities.
     """
     if os.path.exists(ABORT_FILE):
         return False
-    ps_script = f"""
+    ps_script = """
     Add-Type -AssemblyName System.Speech
     $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
     $synth.Volume = 100
     $synth.Rate = 0
-    $synth.Speak('{text.replace("'", "''")}')
+    $text = [Console]::In.ReadToEnd()
+    if ($text) { $synth.Speak($text) }
     """
     try:
-        return _run_monitored_playback(["powershell", "-NoProfile", "-Command", ps_script])
+        return _run_monitored_playback(["powershell", "-NoProfile", "-Command", ps_script], input_data=text)
     except Exception as e:
+        print(f"[SAPI5 Offline Speech Error]: {e}", file=sys.stderr)
+        return False
         print(f"[SAPI5 Offline Speech Error]: {e}", file=sys.stderr)
         return False
 

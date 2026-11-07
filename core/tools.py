@@ -133,20 +133,27 @@ def find_agent_window(target_hint: str = "auto") -> tuple[Any, str]:
                 return True
 
             if target_hint != "auto":
-                if target_hint.lower() in title_lower or target_hint.lower() in proc_name:
+                if target_hint.lower() in proc_name:
                     candidates.append((0, hwnd, target_hint))
                     return False
+                elif target_hint.lower() in title_lower:
+                    candidates.append((1, hwnd, target_hint))
+                    return False
             else:
-                if "antigravity" in title_lower or "antigravity" in proc_name:
+                if "antigravity ide" in proc_name or "antigravity" in proc_name:
                     candidates.append((0, hwnd, "Antigravity"))
-                elif "cursor" in title_lower or "cursor" in proc_name:
-                    candidates.append((1, hwnd, "Cursor"))
-                elif "visual studio code" in title_lower or "code" in proc_name or "vscode" in title_lower:
-                    candidates.append((2, hwnd, "Visual Studio Code"))
-                elif "windsurf" in title_lower or "windsurf" in proc_name:
-                    candidates.append((3, hwnd, "Windsurf"))
-                elif "claude" in title_lower or "claude" in proc_name:
-                    candidates.append((4, hwnd, "Claude"))
+                elif "antigravity" in title_lower and not ("chrome" in proc_name or "brave" in proc_name or "msedge" in proc_name):
+                    candidates.append((1, hwnd, "Antigravity"))
+                elif "cursor" in proc_name:
+                    candidates.append((2, hwnd, "Cursor"))
+                elif "cursor" in title_lower:
+                    candidates.append((3, hwnd, "Cursor"))
+                elif "code" in proc_name or "vscode" in title_lower or "visual studio code" in title_lower:
+                    candidates.append((4, hwnd, "Visual Studio Code"))
+                elif "windsurf" in proc_name or "windsurf" in title_lower:
+                    candidates.append((5, hwnd, "Windsurf"))
+                elif "claude" in proc_name or "claude" in title_lower:
+                    candidates.append((6, hwnd, "Claude"))
             return True
 
         cb_func = WNDENUMPROC(cb)
@@ -163,7 +170,7 @@ def find_agent_window(target_hint: str = "auto") -> tuple[Any, str]:
     return None, "Unknown"
 
 
-def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool = True) -> Dict[str, Any]:
+def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool = True, auto_focus_chat: bool = True) -> Dict[str, Any]:
     """
     Universally injects voice transcription into the active AI Agent's Chat box
     (Claude Code, Cursor, Antigravity, Codex/VS Code, Windsurf) and triggers Enter.
@@ -200,14 +207,36 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
             pass
         time.sleep(0.08)
 
+        # 2. Focus AI Chat input box for IDEs if auto_focus_chat is enabled
+        if auto_focus_chat and detected_agent in ("Antigravity", "Cursor", "Visual Studio Code", "Windsurf"):
+            try:
+                ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+                l_scan = win32api.MapVirtualKey(ord('L'), 0)
+                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
+                win32api.keybd_event(ord('L'), l_scan, 0, 0)
+                time.sleep(0.04)
+                win32api.keybd_event(ord('L'), l_scan, win32con.KEYEVENTF_KEYUP, 0)
+                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
+                time.sleep(0.08)
+                # Move cursor to end so existing text is not erased
+                end_scan = win32api.MapVirtualKey(win32con.VK_END, 0)
+                win32api.keybd_event(win32con.VK_END, end_scan, 0, 0)
+                time.sleep(0.02)
+                win32api.keybd_event(win32con.VK_END, end_scan, win32con.KEYEVENTF_KEYUP, 0)
+                time.sleep(0.04)
+            except Exception:
+                pass
+
+        clipboard_ok = False
         if clean_message:
-            # 2. Copy text to Windows Clipboard with retry loop (resilient against locks)
+            # 3. Copy text to Windows Clipboard with retry loop (resilient against locks)
             for _ in range(10):
                 try:
                     win32clipboard.OpenClipboard()
                     win32clipboard.EmptyClipboard()
                     win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
                     win32clipboard.CloseClipboard()
+                    clipboard_ok = True
                     break
                 except Exception:
                     try:
@@ -217,19 +246,19 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
                     time.sleep(0.02)
             time.sleep(0.04)
 
-            # 3. Paste (Ctrl + V) with hardware scancodes
-            ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
-            v_scan = win32api.MapVirtualKey(ord('V'), 0)
-            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
-            win32api.keybd_event(ord('V'), v_scan, 0, 0)
-            time.sleep(0.03)
-            win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
-            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
+            # 4. Paste (Ctrl + V) with hardware scancodes only if clipboard was successfully set
+            if clipboard_ok:
+                ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+                v_scan = win32api.MapVirtualKey(ord('V'), 0)
+                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
+                win32api.keybd_event(ord('V'), v_scan, 0, 0)
+                time.sleep(0.03)
+                win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
+                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
+                # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
+                time.sleep(0.16)
 
-            # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
-            time.sleep(0.16)
-
-        # 4. Hit ENTER with hardware scancode (simulates physical Enter key!)
+        # 5. Hit ENTER with hardware scancode (simulates physical Enter key!)
         if force_enter or spoken_enter:
             enter_scan = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
             win32api.keybd_event(win32con.VK_RETURN, enter_scan, 0, 0)
