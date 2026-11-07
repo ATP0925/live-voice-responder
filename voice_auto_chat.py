@@ -1,126 +1,59 @@
+"""
+Antigravity Live Voice Typist & Auto-Sender (Hands-Free Duplex Edition)
+No terminal enter key required! Listens continuously with VAD, ignores assistant TTS echo,
+and automatically focuses Antigravity Chat, pastes text, and hits Enter!
+"""
+
 import os
 import sys
 import time
-import subprocess
-import tempfile
-import urllib.request
 import json
-import win32api
-import win32con
-import win32clipboard
+import tempfile
+from pathlib import Path
 
-MIC_DEVICE = "Microphone Array (Realtek(R) Audio)"
-DEFAULT_LANG = "hi-IN" # Hindi / Hinglish
+# Add project root to sys.path
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-def record_audio(duration=4):
-    """Records audio from user's microphone using ffmpeg."""
-    temp_dir = tempfile.gettempdir()
-    flac_path = os.path.join(temp_dir, f"mic_input_{os.getpid()}.flac")
-    
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "dshow",
-        "-i", f"audio={MIC_DEVICE}",
-        "-t", str(duration),
-        "-ar", "16000",
-        "-ac", "1",
-        "-loglevel", "quiet",
-        flac_path
-    ]
-    subprocess.run(cmd, check=True)
-    return flac_path
+from core.tools import inject_agent_chat, find_agent_window
+from core.dsp import AdaptiveNoiseGate
 
-def transcribe_audio(flac_path, lang=DEFAULT_LANG):
-    """Transcribes FLAC audio using Google Speech-to-Text API."""
-    url = f"https://www.google.com/speech-api/v2/recognize?client=chromium&lang={lang}&maxresults=1"
-    headers = {"Content-Type": "audio/x-flac; rate=16000"}
-    
-    with open(flac_path, "rb") as f:
-        audio_data = f.read()
-        
-    req = urllib.request.Request(url, data=audio_data, headers=headers)
+LOCK_FILE = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
+ABORT_FILE = os.path.join(tempfile.gettempdir(), "live_voice_barge_in.signal")
+
+def is_agent_speaking() -> bool:
+    """Checks whether the agent/assistant is currently speaking to prevent feedback echo."""
+    if not os.path.exists(LOCK_FILE):
+        return False
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            content = resp.read().decode("utf-8")
-            # Google returns chunked JSON lines
-            for line in content.strip().split("\n"):
-                if not line.strip():
-                    continue
-                try:
-                    data = json.loads(line)
-                    if "result" in data and len(data["result"]) > 0:
-                        alternatives = data["result"][0].get("alternative", [])
-                        if alternatives:
-                            return alternatives[0].get("transcript", "").strip()
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"[Error in STT]: {e}")
-    finally:
-        if os.path.exists(flac_path):
-            try:
-                os.remove(flac_path)
-            except Exception:
-                pass
-    return None
-
-def paste_and_send(text):
-    """Puts transcribed text into clipboard, pastes (Ctrl+V), and hits Enter in focused chat."""
-    if not text:
-        return
-        
-    print(f"\n[Transcribed]: {text}")
-    print("[Action]: Typing into Antigravity Chat & Auto-Sending (Enter)...")
-    
-    # 1. Set Windows Clipboard
-    win32clipboard.OpenClipboard()
-    win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
-    win32clipboard.CloseClipboard()
-    time.sleep(0.05)
-    
-    # 2. Simulate Ctrl + V
-    win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-    win32api.keybd_event(ord('V'), 0, 0, 0)
-    win32api.keybd_event(ord('V'), 0, win32con.KEYEVENTF_KEYUP, 0)
-    win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-    time.sleep(0.15)
-    
-    # 3. Simulate Enter to auto-send
-    win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-    win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-    print("Done! Message sent to Antigravity!\n")
+        with open(LOCK_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        data = json.loads(content) if content.startswith("{") else {"timestamp": float(content or 0)}
+        ts = data.get("timestamp", 0)
+        return (time.time() - ts) < 12.0
+    except Exception:
+        return False
 
 def main():
-    print("=" * 60)
-    print("  ANTIGRAVITY LIVE VOICE TYPIST & AUTO-SENDER")
-    print("=" * 60)
-    print(f"[*] Microphone: {MIC_DEVICE}")
-    print(f"[*] Language: {DEFAULT_LANG} (Hindi / Hinglish)")
-    print("\n[Instructions]:")
-    print("1. Click your cursor inside Antigravity Chat input box.")
-    print("2. Press ENTER in this console to speak (it will record for 4 seconds).")
-    print("3. As soon as you finish speaking, it will auto-type & auto-send!\n")
-    print("Press CTRL+C anytime to stop.\n")
-    
-    while True:
-        try:
-            input("👉 Press [ENTER] to SPEAK (or Ctrl+C to exit)... ")
-            print("🎙️ Listening... (Bolo abhi!)")
-            flac_file = record_audio(duration=4)
-            print("⏳ Converting speech to text...")
-            transcription = transcribe_audio(flac_file)
-            
-            if transcription:
-                paste_and_send(transcription)
-            else:
-                print("⚠️ Aawaz samajh nahi aayi ya silence tha, dubara koshish karo.")
-        except KeyboardInterrupt:
-            print("\nExiting voice typist. Goodbye!")
-            break
-        except Exception as err:
-            print(f"[Error]: {err}")
-            time.sleep(1)
+    print("=" * 65)
+    print("  🎙️ ANTIGRAVITY HANDS-FREE VOICE TYPIST & AUTO-SENDER")
+    print("=" * 65)
+    print("[*] Mode         : Hands-Free Continuous Voice Activity Detection")
+    print("[*] Interruption : Say 'CROW' or press F8 to interrupt assistant")
+    print("[*] Mute/Pause   : Press F9 or say 'mute mic'")
+    print("[*] Auto-Send    : Automatically focuses Antigravity and hits Enter!")
+    print("=" * 65)
+
+    target_hwnd, agent = find_agent_window("Antigravity")
+    if target_hwnd:
+        print(f"✅ Antigravity Target Found: HWND {target_hwnd} ({agent})")
+    else:
+        print("ℹ️ Antigravity will be auto-detected when speech occurs.")
+
+    # Delegate to the master asynchronous engine for zero-lag performance
+    from live_voice_cli import cli
+    cli()
 
 if __name__ == "__main__":
     main()

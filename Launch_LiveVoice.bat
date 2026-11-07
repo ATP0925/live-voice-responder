@@ -7,10 +7,11 @@ echo ========================================================
 echo Starting Universal Voice Engine for Boss...
 echo Speak into your microphone anytime - auto-sends to Antigravity!
 echo.
+echo [F8 Key / Esc]   : Instant Barge-In / Interruption (Stops speech & listens to suggestion)
+echo [Voice Command]  : Say 'CROW', 'STOP', or 'SUNO' while assistant speaks to interrupt!
 echo [F9 Key]         : Global Toggle Mute / Pause Mic (Works anywhere)
-echo [Voice Command]  : Say 'mute mic' or 'pause' to mute hands-free
-echo [Voice Enter]    : Say '... enter' at sentence end to auto-press Enter
-echo [--list-devices] : Pass --list-devices to inspect mic/headset device IDs
+echo [Hands-Free]     : Continuous listening - No pressing Enter in terminal required!
+echo [Auto Enter]     : Automatically injects into Antigravity Chat and presses Enter!
 echo.
 
 set PY_CMD=python

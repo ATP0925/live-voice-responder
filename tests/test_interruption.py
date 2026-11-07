@@ -46,6 +46,27 @@ class TestInterruption(unittest.TestCase):
         is_mute = raw_low in ("mute", "pause") or any(t == raw_low for t in mute_triggers)
         self.assertFalse(is_mute)
 
+    def test_barge_in_keywords_matching(self):
+        barge_keywords = [
+            "crow", "kro", "krow", "cro", "stop", "suno", "boss", "ruko",
+            "wait", "hold", "pause", "bhai", "chup", "shant", "listen"
+        ]
+        test_phrases = ["crow suno", "ek minute stop karo", "bhai ruko", "wait a second", "kro listen"]
+        for phrase in test_phrases:
+            self.assertTrue(any(k in phrase.lower() for k in barge_keywords), f"Failed for {phrase}")
+
+    def test_fallback_tts_lock_and_stop(self):
+        import os, tempfile
+        from core.fallback_tts import FallbackTTS, LOCK_FILE, ABORT_FILE
+        tts = FallbackTTS()
+        tts._set_speaking_lock(True)
+        self.assertTrue(os.path.exists(LOCK_FILE))
+
+        # Stop / Barge-in triggers cleanup
+        tts.stop()
+        self.assertTrue(tts._aborted)
+        self.assertFalse(os.path.exists(LOCK_FILE))
+
 if __name__ == "__main__":
     unittest.main()
 

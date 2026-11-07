@@ -124,24 +124,53 @@ def _play_audio_file(mp3_path: str, wav_path: str) -> bool:
     except Exception:
         pass
 
+ABORT_FILE = os.path.join(tempfile.gettempdir(), "live_voice_barge_in.signal")
+
+def _run_monitored_playback(cmd: list) -> bool:
+    """Executes audio playback while polling for instant user barge-in abort signal."""
+    if os.path.exists(ABORT_FILE):
+        return False
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        while proc.poll() is None:
+            if os.path.exists(ABORT_FILE):
+                proc.terminate()
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                return False
+            time.sleep(0.04)
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+def _play_audio_file(mp3_path: str, wav_path: str) -> bool:
+    """Plays audio via available OS media handlers with instant barge-in support."""
+    if os.path.exists(ABORT_FILE):
+        return False
+
+    # Route 1: playsound (if installed)
+    try:
+        from playsound import playsound
+        playsound(mp3_path)
+        return True
+    except Exception:
+        pass
+
     # Route 2: ffplay direct MP3 playback
     try:
-        subprocess.run(
-            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", mp3_path],
-            check=True, capture_output=True
-        )
-        return True
+        if _run_monitored_playback(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", mp3_path]):
+            return True
     except Exception:
         pass
 
     # Route 3: PowerShell SoundPlayer on WAV
     if os.path.exists(wav_path):
         try:
-            subprocess.run([
-                "powershell", "-NoProfile", "-Command",
-                f"(New-Object Media.SoundPlayer '{wav_path}').PlaySync()"
-            ], check=True, capture_output=True)
-            return True
+            cmd = ["powershell", "-NoProfile", "-Command", f"(New-Object Media.SoundPlayer '{wav_path}').PlaySync()"]
+            if _run_monitored_playback(cmd):
+                return True
         except Exception:
             pass
 
@@ -151,15 +180,12 @@ def _play_audio_file(mp3_path: str, wav_path: str) -> bool:
             f'$player = New-Object -ComObject WMPlayer.OCX;'
             f'$player.URL = "{mp3_path.replace(chr(92), "/")}";'
             f'$player.controls.play();'
-            f'Start-Sleep -Milliseconds 500;'
+            f'Start-Sleep -Milliseconds 400;'
             f'while($player.playState -eq 3){{Start-Sleep -Milliseconds 100}};'
             f'$player.close();'
         )
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            check=True, capture_output=True, timeout=30
-        )
-        return True
+        if _run_monitored_playback(["powershell", "-NoProfile", "-Command", ps_cmd]):
+            return True
     except Exception:
         pass
 
@@ -170,6 +196,8 @@ def _speak_offline_sapi5(text: str):
     Zero-network offline fallback using Windows SAPI5 Speech Synthesizer.
     Guarantees the agent is NEVER muted even during complete network severance.
     """
+    if os.path.exists(ABORT_FILE):
+        return False
     ps_script = f"""
     Add-Type -AssemblyName System.Speech
     $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -178,8 +206,7 @@ def _speak_offline_sapi5(text: str):
     $synth.Speak('{text.replace("'", "''")}')
     """
     try:
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True, capture_output=True)
-        return True
+        return _run_monitored_playback(["powershell", "-NoProfile", "-Command", ps_script])
     except Exception as e:
         print(f"[SAPI5 Offline Speech Error]: {e}", file=sys.stderr)
         return False
@@ -189,11 +216,16 @@ LOCK_FILE = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock"
 def _set_speaking_lock(active: bool):
     try:
         if active:
+            if os.path.exists(ABORT_FILE):
+                try:
+                    os.remove(ABORT_FILE)
+                except Exception:
+                    pass
             payload = json.dumps({"pid": os.getpid(), "timestamp": time.time()})
             with open(LOCK_FILE, "w", encoding="utf-8") as f:
                 f.write(payload)
         else:
-            time.sleep(0.65)  # Generous grace period for room acoustic reverb dampening
+            time.sleep(0.40)  # Generous grace period for room acoustic reverb dampening
             if os.path.exists(LOCK_FILE):
                 os.remove(LOCK_FILE)
     except Exception:

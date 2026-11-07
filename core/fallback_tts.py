@@ -8,12 +8,17 @@ Tier 3: Windows Native SAPI5 (Offline OS Voice)
 import os
 import re
 import sys
+import time
+import json
 import asyncio
 import threading
 import tempfile
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+LOCK_FILE = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
+ABORT_FILE = os.path.join(tempfile.gettempdir(), "live_voice_barge_in.signal")
 
 class FallbackTTS:
     def __init__(
@@ -27,6 +32,71 @@ class FallbackTTS:
         self.fallback_voice = fallback_voice
         self.rate = rate
         self.volume = volume
+        self._current_proc = None
+        self._aborted = False
+
+    def _set_speaking_lock(self, active: bool):
+        """Signals to audio engine that assistant is speaking (echo cancellation)."""
+        try:
+            if active:
+                if os.path.exists(ABORT_FILE):
+                    try:
+                        os.remove(ABORT_FILE)
+                    except Exception:
+                        pass
+                self._aborted = False
+                payload = json.dumps({"pid": os.getpid(), "timestamp": time.time()})
+                with open(LOCK_FILE, "w", encoding="utf-8") as f:
+                    f.write(payload)
+            else:
+                if not self._aborted:
+                    time.sleep(0.40)  # Grace period for room acoustic reverb dampening
+                if os.path.exists(LOCK_FILE):
+                    try:
+                        os.remove(LOCK_FILE)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def stop(self):
+        """Immediately interrupts playback and kills any running speech process (barge-in)."""
+        self._aborted = True
+        if self._current_proc:
+            try:
+                self._current_proc.terminate()
+                self._current_proc.kill()
+            except Exception:
+                pass
+            self._current_proc = None
+        if os.path.exists(LOCK_FILE):
+            try:
+                os.remove(LOCK_FILE)
+            except Exception:
+                pass
+
+    def _run_playable_process(self, cmd: list) -> bool:
+        """Runs playback process while monitoring for instant user barge-in."""
+        if self._aborted or os.path.exists(ABORT_FILE):
+            return False
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._current_proc = proc
+            while proc.poll() is None:
+                if self._aborted or os.path.exists(ABORT_FILE):
+                    proc.terminate()
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    self._current_proc = None
+                    return False
+                time.sleep(0.04)
+            self._current_proc = None
+            return proc.returncode == 0
+        except Exception:
+            self._current_proc = None
+            return False
 
     @staticmethod
     def clean_text(text: str) -> str:
@@ -39,7 +109,9 @@ class FallbackTTS:
         return text
 
     async def speak_edge_tts(self, text: str, voice: Optional[str] = None) -> bool:
-        """Tier 1: High-fidelity Edge Neural TTS."""
+        """Tier 1: High-fidelity Edge Neural TTS with barge-in support."""
+        if self._aborted or os.path.exists(ABORT_FILE):
+            return False
         try:
             import edge_tts
             v = voice or self.primary_voice
@@ -48,7 +120,14 @@ class FallbackTTS:
                 temp_path = fp.name
             await communicate.save(temp_path)
 
-            # Play using PowerShell MediaPlayer or ffplay
+            if self._aborted or os.path.exists(ABORT_FILE):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+                return False
+
+            # Play using PowerShell MediaPlayer
             ps_cmd = (
                 f'Add-Type -AssemblyName presentationCore;'
                 f'$player = New-Object System.Windows.Media.MediaPlayer;'
@@ -60,49 +139,54 @@ class FallbackTTS:
                 f'else{{Start-Sleep -Milliseconds 3000}};'
                 f'$player.Close();'
             )
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            success = self._run_playable_process(["powershell", "-NoProfile", "-Command", ps_cmd])
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
-            return True
-        except Exception as e:
+            return success
+        except Exception:
             return False
 
     def speak_sapi5(self, text: str) -> bool:
-        """Tier 3: Windows Native SAPI5 Offline Voice."""
+        """Tier 3: Windows Native SAPI5 Offline Voice with barge-in support."""
+        if self._aborted or os.path.exists(ABORT_FILE):
+            return False
         try:
             safe_text = text.replace('"', '""').replace("'", "''")
             ps_cmd = f'$speak = New-Object -ComObject SAPI.SpVoice; $speak.Speak("{safe_text}")'
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
+            return self._run_playable_process(["powershell", "-NoProfile", "-Command", ps_cmd])
         except Exception:
             return False
 
     def speak(self, text: str):
-        """Executes 3-tier synthesis with automatic failover."""
+        """Executes 3-tier synthesis with automatic failover and echo-cancellation lock."""
         clean = self.clean_text(text)
         if not clean:
             return
 
-        # Try Tier 1 Primary
+        self._set_speaking_lock(True)
         try:
-            success = self._run_async_tts(clean, self.primary_voice)
-            if success:
-                return
-        except Exception:
-            pass
+            # Try Tier 1 Primary
+            try:
+                success = self._run_async_tts(clean, self.primary_voice)
+                if success or self._aborted:
+                    return
+            except Exception:
+                pass
 
-        # Try Tier 1 Fallback Voice
-        try:
-            success = self._run_async_tts(clean, self.fallback_voice)
-            if success:
-                return
-        except Exception:
-            pass
+            # Try Tier 1 Fallback Voice
+            try:
+                success = self._run_async_tts(clean, self.fallback_voice)
+                if success or self._aborted:
+                    return
+            except Exception:
+                pass
 
-        # Try Tier 3 Offline SAPI5
-        self.speak_sapi5(clean)
+            # Try Tier 3 Offline SAPI5
+            self.speak_sapi5(clean)
+        finally:
+            self._set_speaking_lock(False)
 
     def _run_async_tts(self, text: str, voice: str) -> bool:
         """Runs async TTS in a dedicated event loop thread to avoid nested asyncio.run() crashes."""

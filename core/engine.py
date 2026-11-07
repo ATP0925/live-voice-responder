@@ -86,13 +86,67 @@ class UniversalLiveVoiceEngine:
                 self.on_transcript("System", f"🎙️ Microphone ACTIVE via {source}. Bolo Boss!")
         return self.is_muted
 
+    def interrupt_speech(self, reason: str = "Barge-in"):
+        """Instantly terminates any active TTS audio playback, clears speaking lock, and restores mic."""
+        import tempfile, subprocess
+        lock_path = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
+        abort_path = os.path.join(tempfile.gettempdir(), "live_voice_barge_in.signal")
+
+        # 1. Create abort signal
+        try:
+            with open(abort_path, "w", encoding="utf-8") as f:
+                f.write(str(time.time()))
+        except Exception:
+            pass
+
+        # 2. Kill playback process if recorded in lock file
+        if os.path.exists(lock_path):
+            try:
+                with open(lock_path, "r", encoding="utf-8") as lf:
+                    content = lf.read().strip()
+                lock_data = json.loads(content) if content.startswith("{") else {"timestamp": float(content or 0)}
+                pid = lock_data.get("pid")
+                if pid and pid != os.getpid():
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=2)
+            except Exception:
+                pass
+            try:
+                os.remove(lock_path)
+            except Exception:
+                pass
+
+        # 3. Stop fallback TTS and flush audio manager
+        if hasattr(self, "fallback_tts") and hasattr(self.fallback_tts, "stop"):
+            self.fallback_tts.stop()
+        self.audio_mgr.flush_playback()
+
+        # 4. State transition
+        self.coordinator.trigger_interruption()
+        if self.on_state_change:
+            self.on_state_change(ConversationState.INTERRUPTED)
+
+        if self.on_transcript:
+            self.on_transcript("System", f"[bold yellow]⚡ [BARGE-IN / INTERRUPTED: {reason}] Chup ho gaya! Sun raha hoon, bolo Boss...[/bold yellow]")
+
+        # 5. Acoustic confirmation chirp
+        try:
+            import winsound
+            winsound.Beep(880, 50)
+        except Exception:
+            pass
+
     def _setup_global_hotkey(self):
-        """Registers F9 and Pause/Break global hotkeys for hands-free mic toggle."""
+        """Registers F8 (Barge-in / Stop speaking), F9 (Toggle Mute), and Esc global hotkeys."""
         try:
             from pynput import keyboard
             def on_press(key):
                 try:
-                    if key in (keyboard.Key.f9, keyboard.Key.pause):
+                    lock_path = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
+                    is_locked = os.path.exists(lock_path)
+                    if key in (keyboard.Key.f8, keyboard.Key.esc):
+                        if is_locked or self.audio_mgr.is_playing:
+                            self.interrupt_speech(reason="F8 / Escape Hotkey")
+                    elif key in (keyboard.Key.f9, keyboard.Key.pause):
                         self.toggle_mute(source="F9 Hotkey")
                 except Exception:
                     pass
@@ -109,8 +163,7 @@ class UniversalLiveVoiceEngine:
 
     def _handle_barge_in(self):
         """Called immediately when user speaks while audio is playing."""
-        self.coordinator.trigger_interruption()
-        self.audio_mgr.flush_playback()
+        self.interrupt_speech(reason="Audio Playback Barge-In")
 
     async def _gemini_audio_send_loop(self, session):
         from google.genai import types
@@ -357,6 +410,7 @@ class UniversalLiveVoiceEngine:
             max_speech_duration=6.0
         )
         audio_buffer = bytearray()
+        barge_in_buffer = bytearray()
         lock_path = os.path.join(tempfile.gettempdir(), "live_voice_agent_speaking.lock")
         if os.path.exists(lock_path):
             try:
@@ -373,6 +427,7 @@ class UniversalLiveVoiceEngine:
                     if self.on_energy:
                         self.on_energy(0.0)
                     audio_buffer.clear()
+                    barge_in_buffer.clear()
                     await asyncio.sleep(0.05)
                     continue
 
@@ -412,7 +467,37 @@ class UniversalLiveVoiceEngine:
                 if is_speaking_locked or self.audio_mgr.is_playing:
                     self.coordinator.set_state(ConversationState.SPEAKING)
                     audio_buffer.clear()
-                    await asyncio.sleep(0.04)
+
+                    # Voice Interruption & Wake-Word ("CROW", "STOP", "SUNO", "BOSS") during speech
+                    intr_chunk = self.audio_mgr.get_input_chunk(timeout=0.03)
+                    if intr_chunk and len(intr_chunk) > 0:
+                        pcm_bytes = intr_chunk[:len(intr_chunk) - (len(intr_chunk) % 2)]
+                        pcm_raw = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32767.0
+                        pcm_filtered = noise_gate.filter.filter_chunk(pcm_raw)
+                        chunk_rms = float(np.sqrt(np.mean(pcm_filtered**2))) if len(pcm_filtered) > 0 else 0.0
+
+                        # If user speaks forcefully / loudly over the speaker output
+                        if chunk_rms > 0.028:
+                            barge_in_buffer.extend(intr_chunk)
+                            if len(barge_in_buffer) >= 8000:  # ~0.25s of speech
+                                captured_barge = bytes(barge_in_buffer)
+                                barge_in_buffer.clear()
+                                loop = asyncio.get_running_loop()
+                                spoken_cmd = await loop.run_in_executor(None, self._transcribe_raw_pcm, captured_barge)
+                                if spoken_cmd:
+                                    cmd_low = spoken_cmd.lower().strip()
+                                    barge_keywords = [
+                                        "crow", "kro", "krow", "cro", "stop", "suno", "boss", "ruko",
+                                        "wait", "hold", "pause", "bhai", "chup", "shant", "listen"
+                                    ]
+                                    if any(k in cmd_low for k in barge_keywords) or chunk_rms > 0.060:
+                                        self.interrupt_speech(reason=f"Voice Command '{spoken_cmd}'")
+                                        audio_buffer.clear()
+                                        continue
+                        else:
+                            barge_in_buffer.clear()
+
+                    await asyncio.sleep(0.01)
                     continue
 
                 chunk = self.audio_mgr.get_input_chunk(timeout=0.04)
