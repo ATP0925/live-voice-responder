@@ -110,15 +110,17 @@ class AdaptiveNoiseGate:
             self.ambient_samples.append(rms)
             if len(self.ambient_samples) >= 8:
                 perc = float(np.percentile(self.ambient_samples, 20))
-                self.ambient_floor = min(0.010, max(0.002, perc))
+                self.ambient_floor = min(0.035, max(0.001, perc))
                 self.calibrated = True
             return False, False, rms
 
         # 3. Dynamic vocal sensitivity thresholds
         # Speech attack threshold: sensitive to human voice, never locking out user
-        attack_thresh = min(0.022, max(0.010, self.ambient_floor * 1.5 + 0.004))
-        # Release threshold: detect clean drop to silence
-        release_thresh = max(0.005, self.ambient_floor * 1.1 + 0.002)
+        attack_thresh = max(0.012, self.ambient_floor * 1.8 + 0.004)
+        # Release threshold: detect clean drop to silence (strictly below attack)
+        release_thresh = max(0.006, self.ambient_floor * 1.25 + 0.002)
+        if release_thresh >= attack_thresh:
+            release_thresh = attack_thresh * 0.75
 
         just_finished = False
 
@@ -133,19 +135,21 @@ class AdaptiveNoiseGate:
                 if now - self.speech_start_time >= self.min_speech_duration:
                     just_finished = True
         elif self.is_speaking:
-            # Below release threshold -> silence counting
-            if rms < release_thresh:
-                silence_elapsed = now - self.last_voice_time
-                total_duration = now - self.speech_start_time
+            # Below attack threshold: if still within voice sustain band, update last_voice_time
+            if rms >= release_thresh:
+                self.last_voice_time = now
 
-                # Check if Boss finished speaking (pause >= silence_timeout or max duration exceeded)
-                if silence_elapsed >= self.silence_timeout or total_duration >= self.max_speech_duration:
-                    self.is_speaking = False
-                    if total_duration >= self.min_speech_duration:
-                        just_finished = True
+            silence_elapsed = now - self.last_voice_time
+            total_duration = now - self.speech_start_time
+
+            # Check if Boss finished speaking (pause >= silence_timeout or max duration exceeded)
+            if silence_elapsed >= self.silence_timeout or total_duration >= self.max_speech_duration:
+                self.is_speaking = False
+                if total_duration >= self.min_speech_duration:
+                    just_finished = True
         else:
-            # Slow leaky update of ambient floor during quiet periods (capped at 0.010)
-            self.ambient_floor = min(0.010, 0.98 * self.ambient_floor + 0.02 * rms)
+            # Slow leaky update of ambient floor during quiet periods
+            self.ambient_floor = min(0.035, 0.98 * self.ambient_floor + 0.02 * rms)
 
         return self.is_speaking, just_finished, rms
 

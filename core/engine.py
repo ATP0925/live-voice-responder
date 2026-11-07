@@ -349,9 +349,10 @@ class UniversalLiveVoiceEngine:
         print("💡 [Pro Tip] Press 'F9' to Pause/Mute anytime, or say 'mute mic'!\n")
         self.fallback_tts.speak(f"{self.config.persona.callsign}, noise filter active hai. F9 dabake mute kar sakte ho.")
 
+        silence_sec = getattr(self.config.audio, "silence_duration_seconds", 0.55)
         noise_gate = AdaptiveNoiseGate(
             sample_rate=self.config.audio.input_sample_rate,
-            silence_timeout=0.45,
+            silence_timeout=silence_sec,
             min_speech_duration=0.20,
             max_speech_duration=6.0
         )
@@ -398,7 +399,7 @@ class UniversalLiveVoiceEngine:
                                 pass
 
                         lock_age = time.time() - ts
-                        if (pid_alive and lock_age < 60.0) or (not pid and lock_age < 20.0):
+                        if (pid_alive and lock_age < 12.0) or (not pid and lock_age < 6.0):
                             is_speaking_locked = True
                         else:
                             try:

@@ -42,6 +42,15 @@ class TestTools(unittest.TestCase):
         self.assertIn("error", res2)
         self.assertIn("Access denied", res2["error"])
 
+    def test_find_agent_window_detects_system_agents(self):
+        from core.tools import find_agent_window, inject_agent_chat
+        hwnd, agent = find_agent_window()
+        # Should return a valid tuple (HWND or None, agent_str)
+        self.assertIsInstance(agent, str)
+        # Empty message injection returns early
+        empty_res = inject_agent_chat("", force_enter=False)
+        self.assertEqual(empty_res.get("status"), "empty_message")
+
 if __name__ == "__main__":
     unittest.main()
 

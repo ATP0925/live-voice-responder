@@ -43,3 +43,4 @@ py-modules = ["live_voice_cli", "live_voice_daemon", "neural_speak", "voice_brid
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core*", "ui*"]
+

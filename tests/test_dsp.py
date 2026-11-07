@@ -42,5 +42,30 @@ class TestDSP(unittest.TestCase):
         self.assertTrue(is_spk)
         self.assertFalse(just_fin)
 
+    def test_adaptive_noise_gate_silence_trigger(self):
+        import time
+        gate = AdaptiveNoiseGate(sample_rate=16000, silence_timeout=0.1, min_speech_duration=0.03)
+        silence_chunk = (np.zeros(512, dtype=np.int16)).tobytes()
+        for _ in range(8):
+            gate.process_chunk(silence_chunk)
+
+        # Voice chunk
+        t = np.linspace(0, 0.032, 512)
+        voice_pcm = (np.sin(2 * np.pi * 500 * t) * 15000).astype(np.int16).tobytes()
+        gate.process_chunk(voice_pcm)
+        self.assertTrue(gate.is_speaking)
+
+        # Feed silence chunks until silence timeout triggers
+        just_finished_seen = False
+        for _ in range(10):
+            time.sleep(0.03)
+            is_spk, just_fin, _ = gate.process_chunk(silence_chunk)
+            if just_fin:
+                just_finished_seen = True
+                break
+
+        self.assertTrue(just_finished_seen)
+        self.assertFalse(gate.is_speaking)
+
 if __name__ == "__main__":
     unittest.main()

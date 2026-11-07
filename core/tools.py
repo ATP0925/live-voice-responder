@@ -90,6 +90,79 @@ def parse_spoken_enter(text: str) -> tuple[str, bool]:
         return stripped, True
     return clean, False
 
+def find_agent_window(target_hint: str = "auto") -> tuple[Any, str]:
+    """Finds target AI agent window HWND reliably across Windows desktop boundaries."""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        h_desk = user32.OpenDesktopW("default", 0, False, 0x01FF)
+        if h_desk:
+            user32.SetThreadDesktop(h_desk)
+
+        candidates = []
+        current_pid = kernel32.GetCurrentProcessId()
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        def cb(hwnd, _):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            title = ""
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buff, length + 1)
+                title = buff.value
+
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == current_pid:
+                return True
+
+            proc_name = ""
+            try:
+                import psutil
+                proc = psutil.Process(pid.value)
+                proc_name = proc.name().lower()
+            except Exception:
+                pass
+
+            title_lower = title.lower()
+            if "live voice responder" in title_lower or "dual-way audio" in title_lower or "neural_speak" in title_lower:
+                return True
+
+            if target_hint != "auto":
+                if target_hint.lower() in title_lower or target_hint.lower() in proc_name:
+                    candidates.append((0, hwnd, target_hint))
+                    return False
+            else:
+                if "antigravity" in title_lower or "antigravity" in proc_name:
+                    candidates.append((0, hwnd, "Antigravity"))
+                elif "cursor" in title_lower or "cursor" in proc_name:
+                    candidates.append((1, hwnd, "Cursor"))
+                elif "visual studio code" in title_lower or "code" in proc_name or "vscode" in title_lower:
+                    candidates.append((2, hwnd, "Visual Studio Code"))
+                elif "windsurf" in title_lower or "windsurf" in proc_name:
+                    candidates.append((3, hwnd, "Windsurf"))
+                elif "claude" in title_lower or "claude" in proc_name:
+                    candidates.append((4, hwnd, "Claude"))
+            return True
+
+        cb_func = WNDENUMPROC(cb)
+        if h_desk:
+            user32.EnumDesktopWindows(h_desk, cb_func, 0)
+        else:
+            user32.EnumWindows(cb_func, 0)
+
+        if candidates:
+            candidates.sort(key=lambda x: x[0])
+            return candidates[0][1], candidates[0][2]
+    except Exception:
+        pass
+    return None, "Unknown"
+
+
 def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool = True) -> Dict[str, Any]:
     """
     Universally injects voice transcription into the active AI Agent's Chat box
@@ -103,136 +176,80 @@ def inject_agent_chat(message: str, target_hint: str = "auto", force_enter: bool
     if not clean_message and not (force_enter or spoken_enter):
         return {"status": "empty_message"}
 
-    target_hwnd = None
-    detected_agent = "Unknown"
-    current_pid = os.getpid()
-
-    candidates = []
-
-    def enum_cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            # Skip windows belonging to our own process
-            try:
-                _, window_pid = win32process.GetWindowThreadProcessId(hwnd)
-                if window_pid == current_pid:
-                    return True
-            except Exception:
-                pass
-            title = win32gui.GetWindowText(hwnd)
-            if not title:
-                return True
-
-            # Skip voice responder console windows
-            title_lower = title.lower()
-            if "live voice responder" in title_lower or "dual-way audio" in title_lower:
-                return True
-
-            if target_hint != "auto":
-                if target_hint.lower() in title_lower:
-                    candidates.append((0, hwnd, target_hint))
-                    return False
-            else:
-                # Prioritize Antigravity IDE (Priority 0)
-                if "antigravity" in title_lower:
-                    candidates.append((0, hwnd, "Antigravity"))
-                elif "cursor" in title_lower:
-                    candidates.append((1, hwnd, "Cursor"))
-                elif "visual studio code" in title_lower or "vscode" in title_lower:
-                    candidates.append((2, hwnd, "Visual Studio Code"))
-                elif "windsurf" in title_lower:
-                    candidates.append((3, hwnd, "Windsurf"))
-                elif "claude" in title_lower:
-                    candidates.append((4, hwnd, "Claude"))
-        return True
+    target_hwnd, detected_agent = find_agent_window(target_hint)
+    if not target_hwnd:
+        return {"status": "no_supported_agent_window_found"}
 
     try:
-        win32gui.EnumWindows(enum_cb, None)
-    except Exception:
-        pass
+        import ctypes
+        user32 = ctypes.windll.user32
 
-    if candidates:
-        candidates.sort(key=lambda x: x[0])
-        _, target_hwnd, detected_agent = candidates[0]
+        # 1. Safely restore and focus target window without altering size or pressing ALT
+        if win32gui.IsIconic(target_hwnd):
+            win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+        else:
+            win32gui.ShowWindow(target_hwnd, win32con.SW_SHOW)
 
-    if target_hwnd:
+        # SwitchToThisWindow guarantees activation across desktop boundaries
         try:
-            # 1. Safely focus target window without altering size or pressing ALT
-            curr_fg = win32gui.GetForegroundWindow()
-            if curr_fg != target_hwnd:
-                if win32gui.IsIconic(target_hwnd):
-                    win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
-                else:
-                    win32gui.ShowWindow(target_hwnd, win32con.SW_SHOW)
+            user32.AllowSetForegroundWindow(-1)
+            user32.SwitchToThisWindow(target_hwnd, True)
+            user32.BringWindowToTop(target_hwnd)
+            user32.SetForegroundWindow(target_hwnd)
+        except Exception:
+            pass
+        time.sleep(0.08)
 
-                try:
-                    import ctypes
-                    user32 = ctypes.windll.user32
-                    user32.AllowSetForegroundWindow(-1)
-                    user32.BringWindowToTop(target_hwnd)
-                    user32.SetForegroundWindow(target_hwnd)
-                except Exception:
-                    pass
-
-                try:
-                    if win32gui.GetForegroundWindow() != target_hwnd:
-                        import ctypes
-                        cur_tid = ctypes.windll.kernel32.GetCurrentThreadId()
-                        tgt_tid = ctypes.windll.user32.GetWindowThreadProcessId(target_hwnd, None)
-                        ctypes.windll.user32.AttachThreadInput(cur_tid, tgt_tid, True)
-                        win32gui.SetForegroundWindow(target_hwnd)
-                        ctypes.windll.user32.AttachThreadInput(cur_tid, tgt_tid, False)
-                except Exception:
-                    pass
-                time.sleep(0.08)
-
-            if clean_message:
-                # 2. Copy text to Windows Clipboard
+        if clean_message:
+            # 2. Copy text to Windows Clipboard with retry loop (resilient against locks)
+            for _ in range(10):
                 try:
                     win32clipboard.OpenClipboard()
                     win32clipboard.EmptyClipboard()
                     win32clipboard.SetClipboardText(clean_message, win32clipboard.CF_UNICODETEXT)
-                finally:
+                    win32clipboard.CloseClipboard()
+                    break
+                except Exception:
                     try:
                         win32clipboard.CloseClipboard()
                     except Exception:
                         pass
-                time.sleep(0.04)
+                    time.sleep(0.02)
+            time.sleep(0.04)
 
-                # 3. Paste (Ctrl + V) with hardware scancodes
-                ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
-                v_scan = win32api.MapVirtualKey(ord('V'), 0)
-                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
-                win32api.keybd_event(ord('V'), v_scan, 0, 0)
-                time.sleep(0.03)
-                win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
-                win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
+            # 3. Paste (Ctrl + V) with hardware scancodes
+            ctrl_scan = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+            v_scan = win32api.MapVirtualKey(ord('V'), 0)
+            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, 0, 0)
+            win32api.keybd_event(ord('V'), v_scan, 0, 0)
+            time.sleep(0.03)
+            win32api.keybd_event(ord('V'), v_scan, win32con.KEYEVENTF_KEYUP, 0)
+            win32api.keybd_event(win32con.VK_CONTROL, ctrl_scan, win32con.KEYEVENTF_KEYUP, 0)
 
-                # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
-                time.sleep(0.16)
+            # Crucial: Allow React/Electron DOM ~160ms to render the pasted text
+            time.sleep(0.16)
 
-            # 4. Hit ENTER with hardware scancode (simulates physical Enter key!)
-            if force_enter or spoken_enter:
-                enter_scan = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
-                win32api.keybd_event(win32con.VK_RETURN, enter_scan, 0, 0)
-                time.sleep(0.05)
-                win32api.keybd_event(win32con.VK_RETURN, enter_scan, win32con.KEYEVENTF_KEYUP, 0)
+        # 4. Hit ENTER with hardware scancode (simulates physical Enter key!)
+        if force_enter or spoken_enter:
+            enter_scan = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
+            win32api.keybd_event(win32con.VK_RETURN, enter_scan, 0, 0)
+            time.sleep(0.05)
+            win32api.keybd_event(win32con.VK_RETURN, enter_scan, win32con.KEYEVENTF_KEYUP, 0)
 
-            # 5. Acoustic confirmation chime
-            try:
-                winsound.Beep(1200, 50)
-            except Exception:
-                pass
+        # 5. Acoustic confirmation chime
+        try:
+            winsound.Beep(1200, 50)
+        except Exception:
+            pass
 
-            return {
-                "status": "success",
-                "agent": detected_agent,
-                "injected_text": clean_message,
-                "voice_enter": spoken_enter or force_enter
-            }
-        except Exception as e:
-            return {"status": "failed", "error": str(e)}
-
-    return {"status": "no_supported_agent_window_found"}
+        return {
+            "status": "success",
+            "agent": detected_agent,
+            "injected_text": clean_message,
+            "voice_enter": spoken_enter or force_enter
+        }
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
 
 # Backward-compatible alias
 inject_antigravity_chat = inject_agent_chat
